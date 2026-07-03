@@ -30,9 +30,16 @@ guarda sus credenciales por separado sin colisión. El % de uso sale de dos fuen
 ## Uso
 
 ```bash
-ccx            # abre Claude Code eligiendo la cuenta con cupo
-ccswitch       # relanza en otra cuenta (asistido; al ver el ⚠️ en la barra)
+ccx                  # abre Claude Code eligiendo la cuenta con cupo
+ccswitch             # relanza en otra cuenta (asistido; al ver el ⚠️ en la barra)
+ccuse work     # abre una cuenta puntual por su nombre
+claude-work    # alias equivalente a `ccuse work`
+claude-personal      # alias equivalente a `ccuse personal`
 ```
+
+Los aliases `claude-<label>` se generan solos desde `accounts.json` al abrir la terminal.
+Lanzar por cualquiera de estos comandos corre en un subshell, así que **no deja
+`CLAUDE_CONFIG_DIR` pegado** en tu sesión.
 
 El statusline muestra, por ejemplo: `personal · 5h 94% · 7d 44%`. Al cruzar el umbral
 agrega `⚠️ 95% — cambia de cuenta: ccswitch`.
@@ -41,21 +48,23 @@ agrega `⚠️ 95% — cambia de cuenta: ccswitch`.
 
 1. Dependencias (macOS): `jq curl security shasum` y `bats-core` para los tests
    (`brew install bats-core`).
-2. `accounts.json` ya trae `personal` (`~/.claude`) y `trabajo` (`~/.claude-alt`).
+2. `accounts.json` ya trae `personal` (`~/.claude`) y `work` (`~/.claude-work`).
 3. El statusline se cablea en `~/.claude/settings.json` (`statusLine.command`).
 4. Las funciones de shell se cargan con `source ~/projects/claude-multi-account/shell/claude-multi.sh` en `~/.zshrc`.
 
-### Loguear la segunda cuenta
+### Loguear la segunda cuenta (work)
+
+En una **terminal real** del sistema (no dentro de Claude Code):
 
 ```bash
-CLAUDE_CONFIG_DIR="$HOME/.claude-alt" claude   # login con la 2da cuenta, luego /exit
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude   # adentro: /login, luego /exit
 ```
 
 Verificar que la entrada de Keychain calculada coincide con la real:
 
 ```bash
 source ~/projects/claude-multi-account/bin/cc-lib.sh
-svc="$(ccm_keychain_service "$HOME/.claude-alt")"
+svc="$(ccm_keychain_service "$HOME/.claude-work")"
 security find-generic-password -s "$svc" >/dev/null 2>&1 && echo "MATCH" || echo "NO MATCH"
 ```
 

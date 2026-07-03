@@ -26,3 +26,15 @@ setup() {
   run ccx
   [[ "$output" == *"CLAUDE_CONFIG_DIR=<unset>"* ]]
 }
+
+@test "ccuse lanza la cuenta por su label (dry-run)" {
+  run ccuse dos --version
+  [[ "$output" == *"CLAUDE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" == *"claude --version"* ]]
+}
+
+@test "ccuse falla con un label inexistente" {
+  run ccuse noexiste
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no existe la cuenta 'noexiste'"* ]]
+}

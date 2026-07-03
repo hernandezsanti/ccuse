@@ -1,5 +1,14 @@
-# cc-lib.sh — helpers compartidos. Sin shebang: se sourcea.
-CCM_ROOT="${CCM_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# cc-lib.sh — helpers compartidos. Sin shebang: se sourcea. Compatible bash/zsh.
+if [ -z "${CCM_ROOT:-}" ]; then
+  if [ -n "${CCM_HOME:-}" ]; then
+    CCM_ROOT="$CCM_HOME"
+  elif [ -n "${BASH_SOURCE:-}" ]; then
+    CCM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  else
+    # zsh: $0 apunta al archivo sourceado
+    CCM_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+  fi
+fi
 CCM_ACCOUNTS_FILE="${CCM_ACCOUNTS_FILE:-$CCM_ROOT/accounts.json}"
 
 ccm_die() { printf 'cc: %s\n' "$*" >&2; return 1; }
