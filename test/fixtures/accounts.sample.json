@@ -1,0 +1,7 @@
+{
+  "accounts": [
+    { "label": "uno", "configDir": "~/.claude" },
+    { "label": "dos", "configDir": "/tmp/cc-dos" }
+  ],
+  "threshold": 90
+}
