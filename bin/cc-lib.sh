@@ -31,6 +31,9 @@ ccm_expand() {
 
 ccm_threshold() { jq -r '.threshold // 95' "$CCM_ACCOUNTS_FILE"; }
 
+# ccm_slug <texto> — normaliza a un nombre de archivo seguro
+ccm_slug() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'; }
+
 ccm_accounts() {
   jq -r '.accounts[] | "\(.label)\t\(.configDir)"' "$CCM_ACCOUNTS_FILE" \
   | while IFS=$'\t' read -r label dir; do

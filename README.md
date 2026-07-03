@@ -23,9 +23,10 @@ guarda sus credenciales por separado sin colisión. El % de uso sale de dos fuen
 | `bin/cc-lib.sh` | Helpers: deps, expand, accounts, threshold, Keychain, token. |
 | `bin/cc-usage.sh <configDir>` | Consulta `/api/oauth/usage` → `% 5h/7d`. |
 | `bin/cc-pick.sh [excluir]` | Elige la cuenta con menor uso bajo el umbral. |
-| `bin/statusline.sh` | Barra de estado con `%` y alerta al umbral. |
+| `bin/statusline.sh` | Barra de estado con modelo, effort, contexto, `%` de uso, hora de reset y alerta. Además guarda el último uso en `state/` para el hook. |
+| `bin/stop-notify.sh` | Hook `Stop`: al terminar el turno, avisa si la cuenta activa está por quedarse sin cupo (lee `state/`, sin llamar a la API). |
 | `bin/cc-label.sh <configDir>` | Devuelve el label de una cuenta. |
-| `shell/claude-multi.sh` | Funciones `ccx` y `ccswitch`. |
+| `shell/claude-multi.sh` | Funciones `ccx`, `ccswitch`, `ccuse` y aliases `claude-<label>`. |
 
 ## Uso
 
@@ -41,8 +42,23 @@ Los aliases `claude-<label>` se generan solos desde `accounts.json` al abrir la 
 Lanzar por cualquiera de estos comandos corre en un subshell, así que **no deja
 `CLAUDE_CONFIG_DIR` pegado** en tu sesión.
 
-El statusline muestra, por ejemplo: `personal · 5h 94% · 7d 44%`. Al cruzar el umbral
-agrega `⚠️ 95% — cambia de cuenta: ccswitch`.
+El statusline muestra, por ejemplo:
+
+```
+personal · Opus 4.8 (1M context) · xhigh · ctx 19% · 5h 94% ↻23:50 · 7d 44% ↻06/07 05:00
+```
+
+donde `ctx` es el uso de la ventana de contexto, `5h`/`7d` el uso de cada límite,
+y `↻` la hora a la que se resetea cada ventana. Al cruzar el umbral agrega
+`⚠️ 95% — cambia de cuenta: ccswitch`.
+
+### Aviso al terminar (hook Stop)
+
+Cuando Claude termina de responder, el hook `stop-notify.sh` chequea el último uso
+registrado por el statusline y, si la cuenta activa superó el umbral, muestra un aviso
+sugiriendo `ccswitch`. No llama a la API (usa `state/`) y tiene cooldown
+(`CCM_NOTIFY_COOLDOWN`, 300 s) para no repetirse en cada turno. Se cablea en
+`~/.claude/settings.json` bajo `hooks.Stop`.
 
 ## Setup
 
