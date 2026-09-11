@@ -12,6 +12,14 @@ DIM='\033[2m'
 
 jget() { printf '%s' "$input" | jq -r "$1 // empty" 2>/dev/null; }
 
+# OSC 8 hyperlink, built in the same escaped-text form as $R/$DIM (literal
+# backslash sequences, not real escape bytes) because everything in $out goes
+# through one `printf '%b'` at the very end. A real ESC byte here would still
+# render, but the ST's raw backslash would sit next to plain label/color text
+# and get reinterpreted by that final %b as the start of its own escape,
+# corrupting whatever follows.
+osc8() { printf '\\033]8;;%s\\033\\\\%s\\033]8;;\\033\\\\' "$1" "$2"; } # $1=url $2=label
+
 # La cuenta la dice la credencial, no el config dir: con todas las cuentas sobre
 # ~/.claude, .config_dir del JSON es siempre el mismo. La env var la hereda este
 # proceso del claude que lo lanzó. Si no está (sesión del modelo viejo), cae al
@@ -21,6 +29,9 @@ cfg="${CLAUDE_SECURESTORAGE_CONFIG_DIR:-}"
 cfg="${cfg:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
 cfg="$(ccm_expand "$cfg")"
 label="$(ccm_accounts 2>/dev/null | awk -F'\t' -v d="$cfg" '$2==d{print $1; f=1} END{if(!f) print "default"}' | head -1)"
+
+sid="$(jget '.session_id')"
+transcript="$(jget '.transcript_path')"
 
 model="$(jget '.model.display_name')"
 effort="$(jget '.effort.level')"
@@ -41,6 +52,18 @@ reset_str() { # $1=epoch $2=fmt -> " ↻<hora>" en dim, o vacío
 }
 
 out="$label"
+if [ -n "$sid" ]; then
+  short_sid="${sid:0:8}"
+  if [ -n "$transcript" ]; then
+    # Spaces are the only character in a stock Claude Code path likely to
+    # break a file:// URI; anything fancier is not worth pulling in a URL
+    # encoder for a link that only ever points at a local path.
+    id_seg="$(osc8 "file://${transcript// /%20}" "$short_sid")"
+  else
+    id_seg="$short_sid"
+  fi
+  out="$out · ${DIM}${id_seg}${R}"
+fi
 [ -n "$model" ]  && out="$out · ${DIM}${model}${R}"
 [ -n "$effort" ] && out="$out · ${DIM}${effort}${R}"
 [ -n "$ctx" ]    && out="$out · $(pick_col "$ctx")ctx $(printf '%.0f' "$ctx")%$R"
