@@ -161,10 +161,27 @@ Lo que queda **propio de cada cuenta**, y no hay que compartir: `.claude.json`
 `mcp-needs-auth-cache.json` y `stats-cache.json` (límites de org, auth de MCP y uso:
 mezclarlos rompe el cálculo del statusline).
 
-`daemon/` y `jobs/` tampoco: cada config dir corre **su propio supervisor**, con su
-`control.key` y su `roster.json`. Dos supervisores sobre un mismo roster se pisan los
-workers. Por eso **FleetView sigue separado por cuenta** y no hay forma segura de
-unificarlo con symlinks.
+`daemon/` y `jobs/` tampoco, y este es el que más tienta: **FleetView queda separado por
+cuenta y no hay forma de unificarlo**. Vale dejar escrito por qué, porque el intento es
+razonable y falla de una manera que no se ve venir.
+
+FleetView arma sus filas de `<configDir>/jobs/*/state.json`, reconciliadas contra
+`<configDir>/daemon/roster.json` para saber qué sigue vivo. No usa el registro de
+`sessions/`, que es lo que sí compartimos y por eso `ListAgents`/`SendMessage` sí cruzan.
+No hay ningún punto donde el código recorra más de un config dir, y las env vars que
+suenan a eso no lo hacen: `CLAUDE_CODE_FLEET_PAST_SESSIONS` solo agrega sesiones pasadas
+y `CLAUDE_CODE_FLEETVIEW_SIMPLE` es un modo de render.
+
+Lo que rompe el symlink de `daemon/` es que **el lock no vive adentro**: el mutex que
+protege `roster.json` es `<configDir>/daemon.lock`, en la raíz del config dir. O sea que
+symlinkear `daemon/` comparte el roster pero deja a cada cuenta con su propio lock, y los
+dos supervisores se creen exclusivos a la vez. Peor: cuando uno toma el roster lo
+reescribe con `workers: {}`, así que vacía los workers del otro, y después su barrido de
+huérfanos los ve sin dueño y los mata.
+
+Symlinkear solo `roster.json` tampoco: el daemon chequea que sea un archivo regular y lo
+borra si no lo es. Y compartir solo `jobs/` deja filas sin reconciliar contra ningún
+roster, y encima expone esos job dirs al barrido de huérfanos de la otra cuenta.
 
 Saltearse este paso deja la cuenta a medias de una forma poco evidente: arranca y
 funciona, pero sin statusline (falta `settings.json` → `statusLine.command`), sin
