@@ -39,6 +39,20 @@ setup() {
   [[ "$output" == *"ccswitch"* ]]
 }
 
+@test "la cuenta sale de la variable de credencial, no del config_dir" {
+  # config_dir es el default (label uno) pero la credencial es la de dos
+  json='{"config_dir":"'"$HOME"'/.claude","rate_limits":{"five_hour":{"used_percentage":40}}}'
+  run bash -c "CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos printf '%s' '$json' | CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos '$ROOT/bin/statusline.sh'"
+  [[ "$output" == *"dos"* ]]
+  [[ "$output" != *"uno"* ]]
+}
+
+@test "la variable de credencial vacia significa cuenta default" {
+  json='{"config_dir":"'"$HOME"'/.claude"}'
+  run bash -c "printf '%s' '$json' | CLAUDE_SECURESTORAGE_CONFIG_DIR= '$ROOT/bin/statusline.sh'"
+  [[ "$output" == *"uno"* ]]
+}
+
 @test "no rompe si falta rate_limits" {
   json='{"config_dir":"'"$HOME"'/.claude"}'
   run bash -c "printf '%s' '$json' | '$ROOT/bin/statusline.sh'"

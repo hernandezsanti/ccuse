@@ -7,6 +7,7 @@ setup() {
   printf '#!/usr/bin/env bash\necho /tmp/cc-dos\n' > "$PICK"; chmod +x "$PICK"
   export CCM_PICK_CMD="$PICK"
   export CCM_DRY_RUN=1
+  unset CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR
   source "$ROOT/shell/claude-multi.sh"
 }
 
@@ -15,21 +16,23 @@ setup() {
   [ "$output" = "dos" ]
 }
 
-@test "ccx elige cuenta y exporta CLAUDE_CONFIG_DIR (dry-run)" {
+@test "ccx elige cuenta: sin CLAUDE_CONFIG_DIR y con la credencial de esa cuenta" {
   run ccx --version
-  [[ "$output" == *"CLAUDE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" == *"CLAUDE_CONFIG_DIR=<unset>"* ]]
+  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos"* ]]
   [[ "$output" == *"claude --version"* ]]
 }
 
-@test "ccx para la cuenta default NO exporta CLAUDE_CONFIG_DIR" {
+@test "ccx para la cuenta default pinea la credencial default" {
   printf '#!/usr/bin/env bash\necho %s/.claude\n' "$HOME" > "$CCM_PICK_CMD"
   run ccx
   [[ "$output" == *"CLAUDE_CONFIG_DIR=<unset>"* ]]
+  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=<default>"* ]]
 }
 
 @test "ccuse lanza la cuenta por su label (dry-run)" {
   run ccuse dos --version
-  [[ "$output" == *"CLAUDE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos"* ]]
   [[ "$output" == *"claude --version"* ]]
 }
 
@@ -41,8 +44,16 @@ setup() {
 
 @test "ccswitch sin argumentos retoma la conversación anterior" {
   run ccswitch
-  [[ "$output" == *"CLAUDE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos"* ]]
   [[ "$output" == *"claude --continue"* ]]
+}
+
+@test "ccswitch excluye la cuenta actual leyendola de la variable de credencial" {
+  # pick fake que imprime lo que le pasaron como exclusión
+  printf '#!/usr/bin/env bash\necho "EXCL=$1" >&2; echo /tmp/cc-dos\n' > "$CCM_PICK_CMD"
+  export CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-uno
+  run ccswitch
+  [[ "$output" == *"EXCL=/tmp/cc-uno"* ]]
 }
 
 @test "ccswitch con argumentos propios no inyecta --continue" {
@@ -54,6 +65,6 @@ setup() {
 @test "CCM_NO_CONTINUE=1 hace que ccswitch abra una sesión nueva" {
   export CCM_NO_CONTINUE=1
   run ccswitch
-  [[ "$output" == *"CLAUDE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos"* ]]
   [[ "$output" != *"--continue"* ]]
 }

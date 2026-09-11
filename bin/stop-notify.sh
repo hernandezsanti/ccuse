@@ -13,7 +13,7 @@ THR="$(ccm_threshold 2>/dev/null || echo 95)"
 COOLDOWN="${CCM_NOTIFY_COOLDOWN:-300}"     # no repetir el aviso antes de N segundos
 FRESH="${CCM_NOTIFY_FRESH:-600}"           # ignorar lecturas más viejas que N segundos
 
-dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+dir="$(ccm_current_dir)"
 label="$("$HERE/cc-label.sh" "$dir" 2>/dev/null || echo default)"
 slug="$(ccm_slug "$label")"
 f="$STATE_DIR/usage-$slug.json"

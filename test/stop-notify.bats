@@ -4,8 +4,15 @@ setup() {
   export CCM_STATE_DIR="$BATS_TEST_TMPDIR/state"
   mkdir -p "$CCM_STATE_DIR"
   # la cuenta activa: HOME/.claude -> label "uno" en el fixture
-  unset CLAUDE_CONFIG_DIR
+  unset CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR
   NOW="$(date +%s)"
+}
+
+@test "la cuenta activa sale de la variable de credencial" {
+  # el estado sobre el umbral es de "uno"; la sesión corre como "dos": no avisa
+  write_state 96 40 "$NOW"
+  run bash -c "echo '{}' | CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos '$ROOT/bin/stop-notify.sh'"
+  [ -z "$output" ]
 }
 
 write_state() { # $1=fh $2=sd $3=ts

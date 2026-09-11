@@ -3,22 +3,29 @@ export CCM_HOME="${CCM_HOME:-$HOME/projects/claude-multi-account}"
 # shellcheck source=../bin/cc-lib.sh
 [ -r "$CCM_HOME/bin/cc-lib.sh" ] && source "$CCM_HOME/bin/cc-lib.sh"
 
-# _ccm_launch <configDir> [args...] — exporta la cuenta y lanza claude en subshell
-# (el subshell evita dejar CLAUDE_CONFIG_DIR pegado en tu terminal).
+# _ccm_launch <credDir> [args...] — lanza claude con la credencial de esa cuenta.
+#
+# Todas las cuentas corren sobre el mismo config dir (~/.claude): un solo daemon,
+# un solo FleetView, todo compartido. Lo único que cambia por cuenta es de dónde
+# sale la credencial, y eso lo elige CLAUDE_SECURESTORAGE_CONFIG_DIR: Claude Code
+# deriva el servicio de Keychain del string exacto de esa variable (o de
+# CLAUDE_CONFIG_DIR si no está), así que pasarle el mismo path que antes iba en
+# CLAUDE_CONFIG_DIR apunta a la misma entrada de Keychain sin volver a loguear.
+# La cuenta default se pinea con la variable VACÍA, no ausente: ausente hace que
+# la derivación caiga en CLAUDE_CONFIG_DIR si alguien lo dejó exportado.
+#
+# El subshell evita dejar variables pegadas en tu terminal.
 _ccm_launch() {
   local dir="$1"; shift
   local label; label="$("$CCM_HOME/bin/cc-label.sh" "$dir" 2>/dev/null || echo '?')"
   printf 'cc: usando cuenta [%s] (%s)\n' "$label" "$dir"
+  local cred="$dir"; [ "$dir" != "$HOME/.claude" ] || cred=""
   if [ -n "${CCM_DRY_RUN:-}" ]; then
-    local shown="<unset>"; [ "$dir" != "$HOME/.claude" ] && shown="$dir"
-    printf 'DRY: CLAUDE_CONFIG_DIR=%s claude %s\n' "$shown" "$*"
+    printf 'DRY: CLAUDE_CONFIG_DIR=<unset> CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude %s\n' \
+      "${cred:-<default>}" "$*"
     return 0
   fi
-  if [ "$dir" = "$HOME/.claude" ]; then
-    ( unset CLAUDE_CONFIG_DIR; command claude "$@" )
-  else
-    ( export CLAUDE_CONFIG_DIR="$dir"; command claude "$@" )
-  fi
+  ( unset CLAUDE_CONFIG_DIR; export CLAUDE_SECURESTORAGE_CONFIG_DIR="$cred"; command claude "$@" )
 }
 
 # ccx [args...] — abre claude eligiendo la cuenta con cupo
@@ -29,12 +36,12 @@ ccx() {
 }
 
 # ccswitch [args...] — relanza en otra cuenta con cupo (distinta a la actual)
-# Sin argumentos retoma la conversación del directorio actual: las cuentas
-# comparten ~/.claude/projects por symlink, así que --continue cruza cuentas.
+# Sin argumentos retoma la conversación del directorio actual: todas las cuentas
+# usan el mismo ~/.claude/projects, así que --continue cruza cuentas.
 # Con CCM_NO_CONTINUE=1, o pasando tus propios argumentos, abre sesión nueva.
 ccswitch() {
   local pick="${CCM_PICK_CMD:-$CCM_HOME/bin/cc-pick.sh}" cur dir
-  cur="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  cur="$(ccm_current_dir)"
   dir="$("$pick" "$cur")" || { echo 'cc: no hay otra cuenta con cupo' >&2; return 1; }
   if [ "$#" -eq 0 ] && [ -z "${CCM_NO_CONTINUE:-}" ]; then set -- --continue; fi
   _ccm_launch "$dir" "$@"

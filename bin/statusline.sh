@@ -12,7 +12,13 @@ DIM='\033[2m'
 
 jget() { printf '%s' "$input" | jq -r "$1 // empty" 2>/dev/null; }
 
-cfg="$(jget '.config_dir')"; cfg="${cfg:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
+# La cuenta la dice la credencial, no el config dir: con todas las cuentas sobre
+# ~/.claude, .config_dir del JSON es siempre el mismo. La env var la hereda este
+# proceso del claude que lo lanzó. Si no está (sesión del modelo viejo), cae al
+# config_dir como antes.
+cfg="${CLAUDE_SECURESTORAGE_CONFIG_DIR:-}"
+[ -n "$cfg" ] || cfg="$(jget '.config_dir')"
+cfg="${cfg:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
 cfg="$(ccm_expand "$cfg")"
 label="$(ccm_accounts 2>/dev/null | awk -F'\t' -v d="$cfg" '$2==d{print $1; f=1} END{if(!f) print "default"}' | head -1)"
 
