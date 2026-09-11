@@ -38,3 +38,22 @@ setup() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"no existe la cuenta 'noexiste'"* ]]
 }
+
+@test "ccswitch sin argumentos retoma la conversación anterior" {
+  run ccswitch
+  [[ "$output" == *"CLAUDE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" == *"claude --continue"* ]]
+}
+
+@test "ccswitch con argumentos propios no inyecta --continue" {
+  run ccswitch --version
+  [[ "$output" == *"claude --version"* ]]
+  [[ "$output" != *"--continue"* ]]
+}
+
+@test "CCM_NO_CONTINUE=1 hace que ccswitch abra una sesión nueva" {
+  export CCM_NO_CONTINUE=1
+  run ccswitch
+  [[ "$output" == *"CLAUDE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" != *"--continue"* ]]
+}

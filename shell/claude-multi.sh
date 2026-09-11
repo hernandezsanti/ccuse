@@ -29,10 +29,14 @@ ccx() {
 }
 
 # ccswitch [args...] — relanza en otra cuenta con cupo (distinta a la actual)
+# Sin argumentos retoma la conversación del directorio actual: las cuentas
+# comparten ~/.claude/projects por symlink, así que --continue cruza cuentas.
+# Con CCM_NO_CONTINUE=1, o pasando tus propios argumentos, abre sesión nueva.
 ccswitch() {
   local pick="${CCM_PICK_CMD:-$CCM_HOME/bin/cc-pick.sh}" cur dir
   cur="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
   dir="$("$pick" "$cur")" || { echo 'cc: no hay otra cuenta con cupo' >&2; return 1; }
+  if [ "$#" -eq 0 ] && [ -z "${CCM_NO_CONTINUE:-}" ]; then set -- --continue; fi
   _ccm_launch "$dir" "$@"
 }
 

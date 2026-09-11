@@ -40,5 +40,5 @@ if [ -r "$nf" ]; then
 fi
 mkdir -p "$STATE_DIR" 2>/dev/null && printf '%s' "$now" > "$nf" 2>/dev/null
 
-msg="⚠️ Cuenta [$label] con poco cupo (5h ${fh:-?}%, 7d ${sd:-?}%). Sal con /exit y cambia con: ccswitch"
+msg="⚠️ Cuenta [$label] con poco cupo (5h ${fh:-?}%, 7d ${sd:-?}%). Sal con /exit y retoma esta conversación en la otra cuenta con: ccswitch"
 jq -cn --arg m "$msg" '{systemMessage:$m}'
