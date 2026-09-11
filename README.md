@@ -26,6 +26,7 @@ guarda sus credenciales por separado sin colisión. El % de uso sale de dos fuen
 | `bin/statusline.sh` | Barra de estado con modelo, effort, contexto, `%` de uso, hora de reset y alerta. Además guarda el último uso en `state/` para el hook. |
 | `bin/stop-notify.sh` | Hook `Stop`: al terminar el turno, avisa si la cuenta activa está por quedarse sin cupo (lee `state/`, sin llamar a la API). |
 | `bin/cc-label.sh <configDir>` | Devuelve el label de una cuenta. |
+| `bin/cc-new-account.sh <label>` | Da de alta (o repara) una cuenta: config dir + symlinks compartidos + registro en `accounts.json`. |
 | `shell/claude-multi.sh` | Funciones `ccx`, `ccswitch`, `ccuse` y aliases `claude-<label>`. |
 
 ## Uso
@@ -90,15 +91,84 @@ Si da `NO MATCH`, buscar el nombre real y fijarlo en `accounts.json` con `"keych
 security dump-keychain 2>/dev/null | grep -o '"Claude Code-credentials[^"]*"' | sort -u
 ```
 
-### Agregar una tercera cuenta
+### Agregar una cuenta
 
-Añadir una entrada a `accounts.json`:
+Usar el script, **no crear el config dir a mano**:
 
-```json
-{ "label": "cliente", "configDir": "~/.claude-cliente" }
+```bash
+bin/cc-new-account.sh cliente              # config dir: ~/.claude-cliente
+bin/cc-new-account.sh cliente ~/otro/dir   # config dir explícito
 ```
 
-y loguearla con `CLAUDE_CONFIG_DIR="$HOME/.claude-cliente" claude`.
+Hace tres cosas: crea el config dir, tiende los symlinks compartidos hacia la cuenta
+base (`~/.claude`), y registra la cuenta en `accounts.json` (con backup). Al final
+imprime el comando de `/login`, que sí hay que correr a mano en una terminal real.
+
+Antes de symlinkear rescata hacia la base lo que se perdería: los transcripts sueltos
+de `projects/`, el registro de `sessions/` (si no, las sesiones vivas pierden su clave
+de socket y dejan de responder a `SendMessage` hasta reiniciarlas), y el contenido de
+`paste-cache/`, `tasks/`, `file-history/` e `image-cache/`. Los keyeados por sesión se
+mergean **por archivo**, no moviendo el dir: la misma clave puede existir de los dos
+lados, y ahí gana lo que ya estaba en la base.
+
+La excepción es `.highwatermark` de `tasks/`, que guarda el último id entregado: ahí
+"gana la base" dejaría la marca de una cuenta con las tareas de la otra, y la próxima
+tarea pisaría una existente. Se resuelve por máximo, y el script corrige de paso
+cualquier dir donde la marca haya quedado por debajo del mayor `<N>.json`.
+
+Es **idempotente**: correrlo sobre una cuenta existente repone los links que falten,
+así que también sirve de reparación. Lo que ya estaba se respalda como
+`<item>.bak.<TS>`, nunca se borra. Si el config dir tenía transcripts sueltos en
+`projects/`, los mueve a la cuenta base antes de symlinkear, para no perderlos.
+
+```bash
+bin/cc-new-account.sh --check cliente      # diagnostica, no escribe (exit 1 si falta algo)
+bin/cc-new-account.sh --dry-run cliente    # muestra lo que haría
+```
+
+Un item que no exista en la base se saltea (`skip <item> (no existe en la base)`) en vez
+de crear un symlink roto. Claude Code crea varios de esos dirs recién cuando los usa, así
+que en una máquina nueva puede faltar alguno y esa cuenta queda sin compartirlo, en
+silencio. Si `--check` lo reporta: `mkdir -p ~/.claude/<item>` y volver a correr el script.
+
+#### Qué se comparte y qué no
+
+Los symlinks que tiende (definidos en `ccm_shared_items`, en `bin/cc-lib.sh`):
+
+```
+.env  agents  commands  file-history  hooks  image-cache  paste-cache
+plugins  projects  rules  sessions  settings.json  settings.local.json
+skills  tasks
+```
+
+`sessions/` es el registro de peers: sin él, `ListAgents` y `SendMessage` solo ven
+las sesiones de la propia cuenta. El transporte ya cruzaba cuentas — los sockets
+viven todos en `/tmp/cc-socks` — así que lo único que faltaba era el descubrimiento.
+No lleva credenciales: cada `<pid>.json` trae pid, cwd, nombre y estado, y cada
+`<pid>.<hash>.key` un token atado a un socket concreto.
+
+`tasks/`, `file-history/` e `image-cache/` van keyeados por sesión, igual que los
+transcripts de `projects/`. Como `ccswitch` le inyecta `--continue` a `claude`, una
+sesión cruza de cuenta por diseño; sin estos links cruza sin su lista de tareas, su
+historial de undo ni sus imágenes pegadas, y la misma clave termina con medio estado
+en cada config dir. `paste-cache/` es lo mismo para el texto pegado, pero keyeado por
+hash de contenido.
+
+Lo que queda **propio de cada cuenta**, y no hay que compartir: `.claude.json`
+(el login OAuth), `history.jsonl` (el historial del up-arrow), `shell-snapshots/`,
+`session-env/`, `cache/`, `backups/`, `telemetry/`, `policy-limits.json`,
+`mcp-needs-auth-cache.json` y `stats-cache.json` (límites de org, auth de MCP y uso:
+mezclarlos rompe el cálculo del statusline).
+
+`daemon/` y `jobs/` tampoco: cada config dir corre **su propio supervisor**, con su
+`control.key` y su `roster.json`. Dos supervisores sobre un mismo roster se pisan los
+workers. Por eso **FleetView sigue separado por cuenta** y no hay forma segura de
+unificarlo con symlinks.
+
+Saltearse este paso deja la cuenta a medias de una forma poco evidente: arranca y
+funciona, pero sin statusline (falta `settings.json` → `statusLine.command`), sin
+hooks, sin skills ni slash commands propios, y con `/resume` vacío porque
+`projects/` no apunta al historial compartido. Ante la duda: `--check`.
 
 ## Revertir
 
@@ -118,5 +188,10 @@ bats test/
 
 ## Alcance
 
-- **Fase 1 (actual):** `ccswitch` abre una **sesión nueva** en la otra cuenta.
-- **Fase 2 (pendiente):** preservar el contexto copiando el transcript + `claude --resume`.
+- `ccswitch` sin argumentos **retoma la conversación** del directorio actual en la otra
+  cuenta: le inyecta `--continue` a `claude`. No hace falta copiar el transcript porque
+  las cuentas comparten `~/.claude/projects` por symlink, y `--continue` elige la sesión
+  más reciente de ese directorio, sin mirar a qué cuenta pertenece.
+- Para abrir una sesión limpia en la otra cuenta: `CCM_NO_CONTINUE=1 ccswitch`, o pasarle
+  tus propios argumentos (`ccswitch --model opus`).
+- `ccx` y `ccuse` siguen abriendo sesión nueva.

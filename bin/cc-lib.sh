@@ -31,6 +31,52 @@ ccm_expand() {
 
 ccm_threshold() { jq -r '.threshold // 95' "$CCM_ACCOUNTS_FILE"; }
 
+# ccm_base_dir — cuenta base de la que cuelgan los symlinks compartidos.
+ccm_base_dir() { printf '%s' "${CCM_BASE_DIR:-$HOME/.claude}"; }
+
+# ccm_shared_items — qué se comparte entre cuentas, uno por línea.
+#
+# sessions/ se comparte para que ListAgents y SendMessage vean las sesiones de
+# todas las cuentas: el registro de peers es <configDir>/sessions, así que sin
+# el link cada cuenta solo se ve a sí misma. No filtra credenciales — cada
+# <pid>.json trae pid, cwd, nombre y estado, y cada <pid>.<hash>.key un token
+# ligado a un socket concreto de /tmp/cc-socks. El transporte ya cruzaba
+# cuentas (feature de peer "reply_across_default_dirs"); faltaba el descubrimiento.
+#
+# tasks/, file-history/ e image-cache/ van keyeados por sesión, igual que los
+# transcripts de projects/ — que ya se comparte. Como ccswitch le inyecta
+# --continue a claude, una sesión cruza de cuenta por diseño; sin estos links
+# cruza sin su lista de tareas, su historial de undo ni sus imágenes pegadas, y
+# queda con medio estado de cada lado (la misma clave en dos config dirs a la vez).
+# paste-cache/ es lo mismo para el texto pegado, pero keyeado por hash de
+# contenido, así que el merge entre cuentas no puede colisionar.
+#
+# Lo que NO está acá es deliberadamente propio de cada cuenta:
+#   .claude.json (login/OAuth), history.jsonl (prompts del up-arrow),
+#   shell-snapshots/, session-env/, cache/, backups/, telemetry/, y sobre todo
+#   daemon/ y jobs/ — cada config dir corre su propio supervisor con su
+#   control.key y su roster.json, y dos supervisores sobre un mismo roster se
+#   pisan los workers. Por eso FleetView sigue separado por cuenta.
+ccm_shared_items() {
+  cat <<'EOF'
+.env
+agents
+commands
+file-history
+hooks
+image-cache
+paste-cache
+plugins
+projects
+rules
+sessions
+settings.json
+settings.local.json
+skills
+tasks
+EOF
+}
+
 # ccm_slug <texto> — normaliza a un nombre de archivo seguro
 ccm_slug() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'; }
 
