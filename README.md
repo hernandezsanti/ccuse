@@ -28,6 +28,8 @@ guarda sus credenciales por separado sin colisión. El % de uso sale de dos fuen
 | `bin/cc-label.sh <configDir>` | Devuelve el label de una cuenta. |
 | `bin/cc-new-account.sh <label>` | Da de alta (o repara) una cuenta: config dir + symlinks compartidos + registro en `accounts.json`. |
 | `bin/cc-mcp-sync.sh` | Replica los MCP server de scope user entre todas las cuentas (lo único que no se puede symlinkear). |
+| `bin/cc-fleet.sh` | Sesiones en background de todas las cuentas, con liveness contra cada roster. Motor de `/fleet`. |
+| `commands/fleet.md` | Slash command `/fleet`: la tabla de arriba dentro de la conversación, en cualquier cuenta. |
 | `shell/claude-multi.sh` | Funciones `ccx`, `ccswitch`, `ccuse` y aliases `claude-<label>`. |
 
 ## Uso
@@ -182,6 +184,46 @@ huérfanos los ve sin dueño y los mata.
 Symlinkear solo `roster.json` tampoco: el daemon chequea que sea un archivo regular y lo
 borra si no lo es. Y compartir solo `jobs/` deja filas sin reconciliar contra ningún
 roster, y encima expone esos job dirs al barrido de huérfanos de la otra cuenta.
+
+Hay una variante que "anda" en estado estable: compartir `daemon/` y `jobs/`, dejar cada
+`daemon.lock` propio, y aliasar `/tmp/cc-daemon-<uid>/<hash(B)>` al de A. Tampoco: sin
+lock compartido nada impide un segundo supervisor (reboot, self-upgrade, `/tmp` vaciado),
+y el arranque hace `unlink(control.sock)` incondicional antes de escuchar, así que el
+nuevo le roba el socket al viejo, adopta sus workers del roster y los dos se los matan.
+
+#### La otra vía: un solo config dir con `CLAUDE_SECURESTORAGE_CONFIG_DIR`
+
+Claude Code tiene una env var que invierte el diseño de este repo: **un solo config dir**
+y solo la credencial separada. `CLAUDE_SECURESTORAGE_CONFIG_DIR` cambia de dónde se
+deriva el nombre del servicio de Keychain (y el fallback `.credentials.json`) sin tocar
+nada más. Verificado con un config dir vacío y descartable:
+
+```bash
+CLAUDE_CONFIG_DIR=/tmp/vacio claude auth status                        # loggedIn: false
+CLAUDE_CONFIG_DIR=/tmp/vacio \
+CLAUDE_SECURESTORAGE_CONFIG_DIR=~/.claude-client claude auth status  # loggedIn: true
+```
+
+Un config dir = un daemon = un FleetView. Sería la solución, y no lo es todavía por dos
+cosas del binario (2.1.268):
+
+- El daemon **no propaga esa variable** a los workers que lanza o respawnea: les inyecta
+  solo `CLAUDE_CONFIG_DIR` y `CLAUDE_BG_ISOLATION`. Un job de la cuenta B respawneado
+  corre con la credencial de A, gastando su cupo, sin aviso.
+- `oauthAccount` en `.claude.json` no es decorativo: la resolución de org lo lee primero
+  y solo va al API si falta, y se reescribe en cada arranque. Dos cuentas sobre un mismo
+  `.claude.json` se pisan la org mutuamente.
+
+El pedido a Anthropic está redactado en `docs/anthropic-issue-fleet-multi-account.md`.
+Cuando lo arreglen, este repo pasa a ser un config dir con N credenciales y desaparece
+casi todo el sistema de symlinks.
+
+Mientras tanto, lo más cerca del TUI que se puede llegar es el slash command **`/fleet`**
+(`commands/fleet.md`, symlinkeado en `~/.claude/commands/` y por lo tanto disponible en
+todas las cuentas): lista las sesiones en background de todas las cuentas dentro de la
+conversación. Su motor es `bin/cc-fleet.sh`, que lee `jobs/*/state.json` de cada cuenta
+y reconcilia contra su `roster.json` para marcar `·muerta` lo que ya no tiene proceso.
+Solo lectura, sin tomar ningún lock. No es la pantalla del `esc`, es lo que hay.
 
 Saltearse este paso deja la cuenta a medias de una forma poco evidente: arranca y
 funciona, pero sin statusline (falta `settings.json` → `statusLine.command`), sin
