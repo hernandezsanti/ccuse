@@ -27,6 +27,7 @@ guarda sus credenciales por separado sin colisión. El % de uso sale de dos fuen
 | `bin/stop-notify.sh` | Hook `Stop`: al terminar el turno, avisa si la cuenta activa está por quedarse sin cupo (lee `state/`, sin llamar a la API). |
 | `bin/cc-label.sh <configDir>` | Devuelve el label de una cuenta. |
 | `bin/cc-new-account.sh <label>` | Da de alta (o repara) una cuenta: config dir + symlinks compartidos + registro en `accounts.json`. |
+| `bin/cc-mcp-sync.sh` | Replica los MCP server de scope user entre todas las cuentas (lo único que no se puede symlinkear). |
 | `shell/claude-multi.sh` | Funciones `ccx`, `ccswitch`, `ccuse` y aliases `claude-<label>`. |
 
 ## Uso
@@ -169,6 +170,32 @@ Saltearse este paso deja la cuenta a medias de una forma poco evidente: arranca 
 funciona, pero sin statusline (falta `settings.json` → `statusLine.command`), sin
 hooks, sin skills ni slash commands propios, y con `/resume` vacío porque
 `projects/` no apunta al historial compartido. Ante la duda: `--check`.
+
+## MCP servers
+
+Es lo único que no se arregla con un symlink. Los MCP de scope user viven en
+`<configDir>/.claude.json`, que queda propio de cada cuenta porque ahí está el OAuth,
+así que un `claude mcp add` hecho en una cuenta es invisible desde las otras.
+
+**`settings.json` no sirve para esto**, aunque su esquema acepte una clave `mcpServers`:
+`claude mcp` no la lee. Un server definido ahí no aparece ni en `claude mcp list` ni en
+`claude mcp get`, en silencio. No la uses.
+
+```bash
+bin/cc-mcp-sync.sh                    # unión de todas las cuentas → todas la tienen
+bin/cc-mcp-sync.sh --from client    # replica solo los de esa cuenta
+bin/cc-mcp-sync.sh --check            # diagnostica, no escribe (exit 1 si falta algo)
+bin/cc-mcp-sync.sh --dry-run          # muestra los comandos
+```
+
+Escribe con `claude mcp add-json --scope user`, nunca editando `.claude.json` a mano:
+son ~160 KB de estado que las sesiones vivas reescriben solas, y tocarlo por afuera se
+pisa con ellas. Solo agrega lo que falte; si un nombre está definido distinto en dos
+cuentas avisa y respeta la que ya estaba, porque puede ser una diferencia deliberada.
+
+Esa es la razón para preferir `--from <label>`: un server puede ser legítimamente de una
+sola cuenta. `aws-mcp`, por ejemplo, lleva el perfil de AWS de esa cuenta en su `env`, así
+que replicarlo a las demás no tendría sentido.
 
 ## Revertir
 
