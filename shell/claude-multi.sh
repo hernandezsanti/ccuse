@@ -20,12 +20,64 @@ _ccm_launch() {
   local label; label="$("$CCM_HOME/bin/cc-label.sh" "$dir" 2>/dev/null || echo '?')"
   printf 'cc: usando cuenta [%s] (%s)\n' "$label" "$dir"
   local cred="$dir"; [ "$dir" != "$HOME/.claude" ] || cred=""
+  if _ccm_use_tmux "$@"; then
+    local session; session="$(_ccm_tmux_session_name "$@")"
+    if [ -n "${CCM_DRY_RUN:-}" ]; then
+      printf 'DRY: tmux new-session -A -s %s env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude %s\n' \
+        "$session" "${cred:-<default>}" "$*"
+      return 0
+    fi
+    printf 'cc: sesión tmux [%s] (si la terminal se cae: tmux attach -t %s)\n' "$session" "$session"
+    # -A: si la sesión ya existe (por nombre -n), se engancha en vez de duplicarla.
+    # El comando va como argv (sin shell) y con env explícito, porque el servidor
+    # de tmux guarda el entorno del primer cliente que lo arrancó, no el tuyo.
+    command tmux new-session -A -s "$session" -c "$PWD" \
+      env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR="$cred" claude "$@"
+    return
+  fi
   if [ -n "${CCM_DRY_RUN:-}" ]; then
     printf 'DRY: CLAUDE_CONFIG_DIR=<unset> CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude %s\n' \
       "${cred:-<default>}" "$*"
     return 0
   fi
   ( unset CLAUDE_CONFIG_DIR; export CLAUDE_SECURESTORAGE_CONFIG_DIR="$cred"; command claude "$@" )
+}
+
+# _ccm_use_tmux — ¿envolver claude en una sesión de tmux?
+#
+# Así, si la terminal (Warp) se cuelga o se cierra, claude sigue vivo en el
+# servidor de tmux y se recupera con `tmux attach`, sin cortar nada a medias.
+# Apagado por default: solo con CCM_TMUX=1. Nunca si ya estás dentro de tmux,
+# ni en modo no interactivo (-p).
+_ccm_use_tmux() {
+  [ "${CCM_TMUX:-}" = "1" ] || return 1
+  [ -n "${TMUX:-}" ] && return 1
+  command -v tmux >/dev/null 2>&1 || return 1
+  local a; for a in "$@"; do case "$a" in -p|--print) return 1 ;; esac; done
+  return 0
+}
+
+# _ccm_tmux_session_name [args...] — el -n/--name de claude si viene; si no,
+# cc-<carpeta>-<hhmmss>. tmux no acepta '.' ni ':' en nombres de sesión.
+_ccm_tmux_session_name() {
+  local name="" prev=""
+  local a; for a in "$@"; do
+    case "$prev" in -n|--name) name="$a"; break ;; esac
+    case "$a" in --name=*) name="${a#--name=}"; break ;; esac
+    prev="$a"
+  done
+  [ -n "$name" ] || name="cc-${PWD##*/}-$(date +%H%M%S)"
+  printf '%s' "$name" | tr '.: ' '---'
+}
+
+# t <comando> [args...] — corre el comando con tmux activado: `t ccuse dos -n x`.
+t() { CCM_TMUX=1 "$@"; }
+
+# ccsessions — sesiones de claude que siguen vivas en tmux (p. ej. tras un
+# crash de la terminal). Engancharse a una: tmux attach -t <nombre>
+ccsessions() {
+  command tmux list-sessions -F '#{session_name}  #{?session_attached,enganchada,SUELTA}  #{pane_current_path}' 2>/dev/null \
+    || echo 'cc: no hay sesiones de tmux'
 }
 
 # ccx [args...] — abre claude eligiendo la cuenta con cupo

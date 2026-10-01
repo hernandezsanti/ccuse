@@ -68,3 +68,46 @@ setup() {
   [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos"* ]]
   [[ "$output" != *"--continue"* ]]
 }
+
+@test "CCM_TMUX=1 envuelve claude en tmux usando el -n como nombre de sesión" {
+  export CCM_TMUX=1
+  unset TMUX
+  run ccuse dos -n my.session "hola"
+  [[ "$output" == *"tmux new-session -A -s my-session env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos claude -n my.session hola"* ]]
+}
+
+@test "dentro de tmux no se anida otra sesión" {
+  export CCM_TMUX=1 TMUX=/tmp/tmux-fake,1,0
+  run ccuse dos --version
+  [[ "$output" != *"tmux new-session"* ]]
+  [[ "$output" == *"claude --version"* ]]
+}
+
+@test "sin CCM_TMUX no se usa tmux" {
+  unset TMUX CCM_TMUX
+  run ccuse dos --version
+  [[ "$output" != *"tmux"* ]]
+  [[ "$output" == *"claude --version"* ]]
+}
+
+@test "t ccuse activa tmux" {
+  unset TMUX CCM_TMUX
+  run t ccuse dos -n my.session
+  [[ "$output" == *"tmux new-session -A -s my-session"* ]]
+}
+
+@test "CCM_TMUX=0 y el modo -p no usan tmux" {
+  unset TMUX
+  CCM_TMUX=0 run ccuse dos --version
+  [[ "$output" != *"tmux"* ]]
+  CCM_TMUX=1 run ccuse dos -p "hola"
+  [[ "$output" != *"tmux"* ]]
+}
+
+@test "sin -n el nombre de sesión sale de la carpeta" {
+  export CCM_TMUX=1
+  unset TMUX
+  cd "$BATS_TEST_TMPDIR"
+  run ccuse dos
+  [[ "$output" == *"tmux new-session -A -s cc-${PWD##*/}-"* ]]
+}
