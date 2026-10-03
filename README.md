@@ -57,7 +57,7 @@ bajo `~/.claude` con credenciales distintas quedaron con su propia credencial en
 | `bin/cc-lib.sh` | Helpers: deps, expand, accounts, threshold, Keychain, token, `ccm_current_dir`. |
 | `bin/cc-usage.sh <credDir>` | Consulta `/api/oauth/usage` → `% 5h/7d`. |
 | `bin/cc-pick.sh [excluir]` | Elige la cuenta con menor uso bajo el umbral. |
-| `bin/statusline.sh` | Barra de estado con cuenta, modelo, effort, contexto, `%` de uso, hora de reset y alerta. Guarda el último uso en `state/` para el hook. |
+| `bin/statusline.sh` | Barra de estado, en una sola fila: cuenta, segmento git (rama, `worktree`, `N sin commitear`, `N sin pushear`, `PRODUCCIÓN` en rojo sobre `main`/`master`, y el PR con su CI), modelo, effort, costo de la sesión, contexto, `%` de uso, hora de reset y alerta. El PR sale de `gh pr view` en segundo plano con caché de 2 min en `state/`, así la barra nunca espera a la red. Guarda el último uso en `state/` para el hook. |
 | `bin/stop-notify.sh` | Hook `Stop`: al terminar el turno, avisa si la cuenta activa está por quedarse sin cupo (lee `state/`, sin API). |
 | `bin/cc-label.sh <credDir>` | Devuelve el label de una cuenta. |
 | `bin/cc-new-account.sh <label>` | Da de alta una cuenta: dir de credencial + registro + comando de login. |
