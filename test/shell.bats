@@ -2,112 +2,112 @@ setup() {
   ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
   export CCM_HOME="$ROOT"
   export CCM_ACCOUNTS_FILE="$ROOT/test/fixtures/accounts.sample.json"
-  # cc-pick fake: siempre elige /tmp/cc-dos
+  # fake cc-pick: always picks /tmp/cc-two
   PICK="$BATS_TEST_TMPDIR/cc-pick.sh"
-  printf '#!/usr/bin/env bash\necho /tmp/cc-dos\n' > "$PICK"; chmod +x "$PICK"
+  printf '#!/usr/bin/env bash\necho /tmp/cc-two\n' > "$PICK"; chmod +x "$PICK"
   export CCM_PICK_CMD="$PICK"
   export CCM_DRY_RUN=1
   unset CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR
   source "$ROOT/shell/claude-multi.sh"
 }
 
-@test "cc-label devuelve el label configurado" {
-  run "$ROOT/bin/cc-label.sh" "/tmp/cc-dos"
-  [ "$output" = "dos" ]
+@test "cc-label returns the configured label" {
+  run "$ROOT/bin/cc-label.sh" "/tmp/cc-two"
+  [ "$output" = "two" ]
 }
 
-@test "ccx elige cuenta: sin CLAUDE_CONFIG_DIR y con la credencial de esa cuenta" {
+@test "ccx picks an account: no CLAUDE_CONFIG_DIR and the credential of that account" {
   run ccx --version
   [[ "$output" == *"CLAUDE_CONFIG_DIR=<unset>"* ]]
-  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-two"* ]]
   [[ "$output" == *"claude --version"* ]]
 }
 
-@test "ccx para la cuenta default pinea la credencial default" {
+@test "ccx for the default account selects the default credential" {
   printf '#!/usr/bin/env bash\necho %s/.claude\n' "$HOME" > "$CCM_PICK_CMD"
   run ccx
   [[ "$output" == *"CLAUDE_CONFIG_DIR=<unset>"* ]]
   [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=<default>"* ]]
 }
 
-@test "ccuse lanza la cuenta por su label (dry-run)" {
-  run ccuse dos --version
-  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos"* ]]
+@test "ccuse starts the account by its label (dry-run)" {
+  run ccuse two --version
+  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-two"* ]]
   [[ "$output" == *"claude --version"* ]]
 }
 
-@test "ccuse falla con un label inexistente" {
-  run ccuse noexiste
+@test "ccuse fails with a label that does not exist" {
+  run ccuse missing
   [ "$status" -ne 0 ]
-  [[ "$output" == *"no existe la cuenta 'noexiste'"* ]]
+  [[ "$output" == *"account 'missing' does not exist"* ]]
 }
 
-@test "ccswitch sin argumentos retoma la conversación anterior" {
+@test "ccswitch without arguments continues the previous conversation" {
   run ccswitch
-  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-two"* ]]
   [[ "$output" == *"claude --continue"* ]]
 }
 
-@test "ccswitch excluye la cuenta actual leyendola de la variable de credencial" {
-  # pick fake que imprime lo que le pasaron como exclusión
-  printf '#!/usr/bin/env bash\necho "EXCL=$1" >&2; echo /tmp/cc-dos\n' > "$CCM_PICK_CMD"
-  export CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-uno
+@test "ccswitch skips the current account, read from the credential variable" {
+  # fake pick that prints what it received as the account to skip
+  printf '#!/usr/bin/env bash\necho "EXCL=$1" >&2; echo /tmp/cc-two\n' > "$CCM_PICK_CMD"
+  export CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-one
   run ccswitch
-  [[ "$output" == *"EXCL=/tmp/cc-uno"* ]]
+  [[ "$output" == *"EXCL=/tmp/cc-one"* ]]
 }
 
-@test "ccswitch con argumentos propios no inyecta --continue" {
+@test "ccswitch with its own arguments does not add --continue" {
   run ccswitch --version
   [[ "$output" == *"claude --version"* ]]
   [[ "$output" != *"--continue"* ]]
 }
 
-@test "CCM_NO_CONTINUE=1 hace que ccswitch abra una sesión nueva" {
+@test "CCM_NO_CONTINUE=1 makes ccswitch open a new session" {
   export CCM_NO_CONTINUE=1
   run ccswitch
-  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos"* ]]
+  [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-two"* ]]
   [[ "$output" != *"--continue"* ]]
 }
 
-@test "CCM_TMUX=1 envuelve claude en tmux usando el -n como nombre de sesión" {
+@test "CCM_TMUX=1 runs claude inside tmux, with -n as the session name" {
   export CCM_TMUX=1
   unset TMUX
-  run ccuse dos -n my.session "hola"
-  [[ "$output" == *"tmux new-session -A -s my-session env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos claude -n my.session hola"* ]]
+  run ccuse two -n my.session "hello"
+  [[ "$output" == *"tmux new-session -A -s my-session env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-two claude -n my.session hello"* ]]
 }
 
-@test "dentro de tmux no se anida otra sesión" {
+@test "inside tmux it does not nest another session" {
   export CCM_TMUX=1 TMUX=/tmp/tmux-fake,1,0
-  run ccuse dos --version
+  run ccuse two --version
   [[ "$output" != *"tmux new-session"* ]]
   [[ "$output" == *"claude --version"* ]]
 }
 
-@test "sin CCM_TMUX no se usa tmux" {
+@test "without CCM_TMUX tmux is not used" {
   unset TMUX CCM_TMUX
-  run ccuse dos --version
+  run ccuse two --version
   [[ "$output" != *"tmux"* ]]
   [[ "$output" == *"claude --version"* ]]
 }
 
-@test "t ccuse activa tmux" {
+@test "t ccuse turns tmux on" {
   unset TMUX CCM_TMUX
-  run t ccuse dos -n my.session
+  run t ccuse two -n my.session
   [[ "$output" == *"tmux new-session -A -s my-session"* ]]
 }
 
-@test "CCM_TMUX=0 y el modo -p no usan tmux" {
+@test "CCM_TMUX=0 and -p mode do not use tmux" {
   unset TMUX
-  CCM_TMUX=0 run ccuse dos --version
+  CCM_TMUX=0 run ccuse two --version
   [[ "$output" != *"tmux"* ]]
-  CCM_TMUX=1 run ccuse dos -p "hola"
+  CCM_TMUX=1 run ccuse two -p "hello"
   [[ "$output" != *"tmux"* ]]
 }
 
-@test "sin -n el nombre de sesión sale de la carpeta" {
+@test "without -n the session name comes from the folder" {
   export CCM_TMUX=1
   unset TMUX
   cd "$BATS_TEST_TMPDIR"
-  run ccuse dos
+  run ccuse two
   [[ "$output" == *"tmux new-session -A -s cc-${PWD##*/}-"* ]]
 }

@@ -3,14 +3,14 @@ setup() {
   SCRIPT="$ROOT/bin/cc-fleet.sh"
   TMP="$BATS_TEST_TMPDIR/ccm"
 
-  UNO="$TMP/.claude-uno"; DOS="$TMP/.claude-dos"
-  mkdir -p "$UNO/daemon" "$DOS/daemon"
-  echo '{"workers":{}}' > "$UNO/daemon/roster.json"
-  echo '{"workers":{}}' > "$DOS/daemon/roster.json"
+  ONE="$TMP/.claude-one"; TWO="$TMP/.claude-two"
+  mkdir -p "$ONE/daemon" "$TWO/daemon"
+  echo '{"workers":{}}' > "$ONE/daemon/roster.json"
+  echo '{"workers":{}}' > "$TWO/daemon/roster.json"
 
   export CCM_ACCOUNTS_FILE="$TMP/accounts.json"
   cat > "$CCM_ACCOUNTS_FILE" <<EOF
-{"accounts":[{"label":"uno","configDir":"$UNO"},{"label":"dos","configDir":"$DOS"}],
+{"accounts":[{"label":"one","configDir":"$ONE"},{"label":"two","configDir":"$TWO"}],
  "threshold":95}
 EOF
 }
@@ -20,85 +20,84 @@ job() {
   mkdir -p "$1/jobs/$2"
   cat > "$1/jobs/$2/state.json" <<EOF
 {"state":"$3","tempo":"$4","name":"$5","cwd":"/tmp/repo-$2",
- "daemonShort":"$2","detail":"detalle de $5"}
+ "daemonShort":"$2","detail":"detail of $5"}
 EOF
 }
 
-# vivo <configDir> <short> <pid> — mete el worker en el roster de esa cuenta
-vivo() {
+# alive <configDir> <short> <pid>: adds the worker to the roster of that account
+alive() {
   local f="$1/daemon/roster.json" t="$1/daemon/roster.t"
   jq --arg s "$2" --argjson p "$3" '.workers[$s] = {"pid":$p}' "$f" > "$t" && mv "$t" "$f"
 }
 
-@test "lista jobs de varias cuentas etiquetados por cuenta" {
-  job "$UNO" aaaaaaaa working active "tarea de uno"; vivo "$UNO" aaaaaaaa $$
-  job "$DOS" bbbbbbbb working active "tarea de dos"; vivo "$DOS" bbbbbbbb $$
+@test "lists jobs from several accounts, labeled by account" {
+  job "$ONE" aaaaaaaa working active "task of one"; alive "$ONE" aaaaaaaa $$
+  job "$TWO" bbbbbbbb working active "task of two"; alive "$TWO" bbbbbbbb $$
   run "$SCRIPT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"uno"*"tarea de uno"* ]]
-  [[ "$output" == *"dos"*"tarea de dos"* ]]
+  [[ "$output" == *"one"*"task of one"* ]]
+  [[ "$output" == *"two"*"task of two"* ]]
 }
 
-@test "marca muerta la que no tiene worker vivo en el roster" {
-  job "$UNO" aaaaaaaa working active "viva"; vivo "$UNO" aaaaaaaa $$
-  # pid 2^31-1: no existe, y el short ni figura en el roster
-  job "$DOS" bbbbbbbb working active "colgada"
+@test "marks as dead a job with no live worker in the roster" {
+  job "$ONE" aaaaaaaa working active "running"; alive "$ONE" aaaaaaaa $$
+  # the short id is not in the roster at all
+  job "$TWO" bbbbbbbb working active "stuck"
   run "$SCRIPT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"colgada"* ]]
-  echo "$output" | grep -q 'muerta.*colgada\|colgada'
-  echo "$output" | grep 'colgada' | grep -q 'muerta'
-  echo "$output" | grep 'viva'    | grep -vq 'muerta'
+  [[ "$output" == *"stuck"* ]]
+  echo "$output" | grep 'stuck'   | grep -q 'dead'
+  echo "$output" | grep 'running' | grep -vq 'dead'
 }
 
-@test "un job terminado y sin proceso se oculta salvo --all" {
-  # el nombre no puede contener "terminada": el propio aviso de ocultas la usa
-  job "$UNO" aaaaaaaa done idle "ya-finalizo"
+@test "a finished job without a process is hidden unless --all" {
+  # the name cannot contain "finished": the hidden notice itself uses that word
+  job "$ONE" aaaaaaaa done idle "already-over"
   run "$SCRIPT"
   [ "$status" -eq 0 ]
-  [[ "$output" != *"ya-finalizo"* ]]
-  [[ "$output" == *"oculta"* ]]
+  [[ "$output" != *"already-over"* ]]
+  [[ "$output" == *"hidden"* ]]
   run "$SCRIPT" --all
   [ "$status" -eq 0 ]
-  [[ "$output" == *"ya-finalizo"* ]]
+  [[ "$output" == *"already-over"* ]]
 }
 
-@test "un job que decia trabajar y esta muerto NO se oculta" {
-  job "$UNO" aaaaaaaa working active "colgada"
+@test "a dead job that said it was working is NOT hidden" {
+  job "$ONE" aaaaaaaa working active "stuck"
   run "$SCRIPT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"colgada"* ]]
-  [[ "$output" == *"muerta"* ]]
+  [[ "$output" == *"stuck"* ]]
+  [[ "$output" == *"dead"* ]]
 }
 
-@test "colapsa estado y tempo cuando son iguales" {
-  job "$UNO" aaaaaaaa blocked blocked "trabada"; vivo "$UNO" aaaaaaaa $$
+@test "merges state and tempo when they are equal" {
+  job "$ONE" aaaaaaaa blocked blocked "waiting"; alive "$ONE" aaaaaaaa $$
   run "$SCRIPT"
   [ "$status" -eq 0 ]
-  echo "$output" | grep 'trabada' | grep -q 'blocked'
-  echo "$output" | grep 'trabada' | grep -vq 'blocked/blocked'
+  echo "$output" | grep 'waiting' | grep -q 'blocked'
+  echo "$output" | grep 'waiting' | grep -vq 'blocked/blocked'
 }
 
-@test "ordena de mas reciente a mas vieja" {
-  job "$UNO" aaaaaaaa working active "vieja"; vivo "$UNO" aaaaaaaa $$
-  touch -t 202001010000 "$UNO/jobs/aaaaaaaa/state.json"
-  job "$DOS" bbbbbbbb working active "nueva"; vivo "$DOS" bbbbbbbb $$
+@test "sorts from newest to oldest" {
+  job "$ONE" aaaaaaaa working active "older"; alive "$ONE" aaaaaaaa $$
+  touch -t 202001010000 "$ONE/jobs/aaaaaaaa/state.json"
+  job "$TWO" bbbbbbbb working active "newer"; alive "$TWO" bbbbbbbb $$
   run "$SCRIPT"
   [ "$status" -eq 0 ]
-  [ "$(echo "$output" | grep -n 'nueva' | cut -d: -f1)" -lt \
-    "$(echo "$output" | grep -n 'vieja' | cut -d: -f1)" ]
+  [ "$(echo "$output" | grep -n 'newer' | cut -d: -f1)" -lt \
+    "$(echo "$output" | grep -n 'older' | cut -d: -f1)" ]
 }
 
-@test "sin jobs avisa y sale limpio" {
+@test "with no jobs it says so and exits cleanly" {
   run "$SCRIPT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no hay sesiones en background"* ]]
+  [[ "$output" == *"no background sessions"* ]]
 }
 
-@test "no escribe nada en los config dirs" {
-  job "$UNO" aaaaaaaa working active "tarea"; vivo "$UNO" aaaaaaaa $$
-  antes="$(find "$UNO" "$DOS" -type f | sort | xargs shasum | shasum)"
+@test "writes nothing in the config dirs" {
+  job "$ONE" aaaaaaaa working active "task"; alive "$ONE" aaaaaaaa $$
+  before="$(find "$ONE" "$TWO" -type f | sort | xargs shasum | shasum)"
   "$SCRIPT" >/dev/null
-  despues="$(find "$UNO" "$DOS" -type f | sort | xargs shasum | shasum)"
-  [ "$antes" = "$despues" ]
+  after="$(find "$ONE" "$TWO" -type f | sort | xargs shasum | shasum)"
+  [ "$before" = "$after" ]
 }

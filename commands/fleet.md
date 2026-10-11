@@ -1,14 +1,14 @@
 ---
-description: Sesiones en background de TODAS las cuentas de Claude Code (lo que el panel de esc no puede mostrar). Opcional: --all para incluir las terminadas.
+description: Background sessions of ALL Claude Code accounts (what the esc panel cannot show). Optional: --all to include finished ones.
 allowed-tools: Bash(~/projects/claude-multi-account/bin/cc-fleet.sh:*)
 ---
 
-Sesiones en background de todas las cuentas ahora mismo:
+Background sessions of all accounts right now:
 
 ```
 !`~/projects/claude-multi-account/bin/cc-fleet.sh $ARGUMENTS`
 ```
 
-Mostrá la tabla tal cual, sin resumirla ni reordenarla. Si hay filas marcadas `·muerta` con
-estado `working`, señalalas aparte: son jobs que quedaron colgados (dicen estar trabajando
-pero su proceso ya no existe). No hagas nada más salvo que te lo pidan.
+Show the table as it is, without summarizing or reordering it. If there are rows marked
+`·dead` with state `working`, point them out separately: they are stuck jobs (they say they
+are working, but their process no longer exists). Do nothing else unless you are asked to.

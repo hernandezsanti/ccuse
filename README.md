@@ -1,160 +1,334 @@
-# claude-multi-account
+# ccuse
 
-Varias cuentas de Claude Code en la misma Mac, sobre **un solo config dir**. Elegí la que
-tenga cupo al abrir una sesión, mirá el % de uso en el statusline, recibí un aviso al
-llegar al umbral (95% por defecto) con el comando para cambiar de cuenta, y vé **todas** las
-sesiones en background de todas las cuentas en el mismo FleetView.
+Switch Claude Code accounts when one runs out of quota, without losing the conversation.
 
-## Cómo funciona
+Shell scripts for macOS. All accounts share one config directory, so an account is only a
+credential.
 
-Una cuenta es solo una credencial. Todo lo demás (config, historial, sesiones, tareas,
-skills, hooks, el daemon de background) vive en `~/.claude` y es común a todas.
-
-Claude Code elige la credencial con `CLAUDE_SECURESTORAGE_CONFIG_DIR`: deriva el nombre
-de la entrada de Keychain del string exacto de esa variable (`Claude Code-credentials` +
-`-sha256(dir)[:8]`; sin sufijo si está vacía). Si no está, cae en `CLAUDE_CONFIG_DIR`.
-Así que cada cuenta tiene un dir casi vacío (`~/.claude-<label>`) cuyo único rol es ser
-ese string estable, y `ccuse <label>` lanza:
+![Terminal demo: the accounts file lists three accounts; "ccuse work -n demo" prints the launch command for the work account; the status line of a work session shows 5h 96% and a red warning "95%: switch account with ccswitch"; "ccswitch" then picks the client account and continues the conversation.](docs/demo.gif)
 
 ```bash
-CLAUDE_CONFIG_DIR=<sin setear> CLAUDE_SECURESTORAGE_CONFIG_DIR=~/.claude-<label> claude
+ccx          # open Claude Code with the account that has the lowest usage
+ccuse work   # open the account with the label "work"
+ccswitch     # move the current conversation to another account with quota left
 ```
 
-La cuenta default (`personal`, `~/.claude`) se lanza con la variable **vacía**, no
-ausente: vacía pinea la credencial default aunque alguien haya dejado `CLAUDE_CONFIG_DIR`
-exportado en el shell.
+The demo uses fake accounts and stubbed usage numbers. See [docs/demo.md](docs/demo.md)
+for how it is recorded.
 
-El % de uso sale de dos fuentes:
+## Why this approach
 
-- **En vivo:** el statusline recibe `rate_limits.*.used_percentage` de Claude Code. Viene
-  de los headers de cada respuesta del API, o sea por credencial: compartir config dir no
-  mezcla el % entre cuentas.
-- **Antes de arrancar:** `GET https://api.anthropic.com/api/oauth/usage` con el token de
-  cada cuenta, leído de su entrada de Keychain.
+Each Claude Code subscription has a 5 hour limit and a 7 day limit. If you have more
+than one account, for example a personal one and a work one, there are two common ways
+to switch between them:
 
-### Por qué un solo config dir
+- Log out and log in again with `/login`. This is slow, and you lose track of which
+  account has quota left.
+- Use one `CLAUDE_CONFIG_DIR` per account. This works, but then every account has its
+  own history, settings, MCP servers, skills and background daemon. You have to keep
+  them in sync by hand, and you cannot continue a conversation in another account.
 
-Este repo empezó con un `CLAUDE_CONFIG_DIR` por cuenta y un sistema de symlinks para
-compartir lo compartible. Lo que nunca se pudo compartir así fue el daemon de background,
-y por lo tanto FleetView (el panel del `esc`): cada config dir corre su propio supervisor,
-el mutex del roster es `<configDir>/daemon.lock` (fuera de `daemon/`), y el arranque hace
-`unlink(control.sock)` sin condición, así que dos supervisores sobre un mismo roster se
-roban el socket y se matan los workers mutuamente. Con un solo config dir hay un solo
-supervisor y el problema desaparece.
+This tool keeps one config directory (`~/.claude`) for all accounts. The only thing
+that changes between accounts is the credential, which Claude Code reads from a
+different Keychain entry. So history, settings, MCP servers and skills are shared,
+and `ccswitch` can continue the same conversation in another account.
 
-Lo que hacía falta para invertir el modelo era que el daemon supiera con qué credencial
-respawnear a cada worker. Lo hace: `CLAUDE_SECURESTORAGE_CONFIG_DIR` está en la allowlist
-de `providerEnv` que persiste en `jobs/<id>/state.json` (junto a `CLAUDE_CONFIG_DIR`,
-`AWS_PROFILE`, `GOOGLE_APPLICATION_CREDENTIALS`…). Verificado en vivo: dos jobs lanzados
-bajo `~/.claude` con credenciales distintas quedaron con su propia credencial en
-`providerEnv` y ambos autenticaron con la cuenta correcta.
+It also adds a status line that shows the usage of the current account, and a warning
+with the `ccswitch` command when the account reaches a threshold (95% by default).
 
-## Componentes
+Do not use it if you are not on macOS, if you use an API key instead of a Claude
+subscription, or if you only have one account.
 
-| Archivo | Rol |
-|---|---|
-| `accounts.json` | Registro de cuentas (`label` → dir de credencial) y `threshold`. |
-| `bin/cc-lib.sh` | Helpers: deps, expand, accounts, threshold, Keychain, token, `ccm_current_dir`. |
-| `bin/cc-usage.sh <credDir>` | Consulta `/api/oauth/usage` → `% 5h/7d`. |
-| `bin/cc-pick.sh [excluir]` | Elige la cuenta con menor uso bajo el umbral. |
-| `bin/statusline.sh` | Barra de estado, en una sola fila: cuenta, segmento git (rama, `worktree`, `N sin commitear`, `N sin pushear`, `PRODUCCIÓN` en rojo sobre `main`/`master`, y el PR con su CI), modelo, effort, costo de la sesión, contexto, `%` de uso, hora de reset y alerta. El PR sale de `gh pr view` en segundo plano con caché de 2 min en `state/`, así la barra nunca espera a la red. Guarda el último uso en `state/` para el hook. |
-| `bin/stop-notify.sh` | Hook `Stop`: al terminar el turno, avisa si la cuenta activa está por quedarse sin cupo (lee `state/`, sin API). |
-| `bin/cc-label.sh <credDir>` | Devuelve el label de una cuenta. |
-| `bin/cc-new-account.sh <label>` | Da de alta una cuenta: dir de credencial + registro + comando de login. |
-| `bin/cc-fleet.sh` | Sesiones en background de todas las cuentas, incluidas las del modelo viejo. Motor de `/fleet`. |
-| `commands/fleet.md` | Slash command `/fleet`. Con un solo config dir el `esc` ya muestra todo; queda para la transición y para detectar jobs colgados. |
-| `shell/claude-multi.sh` | Funciones `ccx`, `ccswitch`, `ccuse` y aliases `claude-<label>`. |
+## Status and limitations
 
-## Uso
+This is a personal tool with one maintainer. There are no versioned releases. It
+depends on two things that are not public, documented interfaces: how Claude Code
+names its Keychain entries, and the `/api/oauth/usage` endpoint. A future Claude Code
+version can break it. It is released under the [MIT license](LICENSE).
+
+Other limitations:
+
+- It only works on macOS. The credential lookup uses the Keychain through `security`,
+  and the scripts use the BSD versions of `stat` and `date`.
+- Because all accounts share one config directory, some things are shared that
+  should not be. `/status` and the start banner show the last account that started,
+  not the account of the current session. This is only cosmetic: billing and rate
+  limits follow the credential, and the status line shows the correct account. The
+  cache of MCP connectors that need authentication is also shared, so if a connector
+  fails to authenticate in one account, the other account can skip it for a few
+  minutes. Deleting `~/.claude/mcp-needs-auth-cache.json` fixes it.
+- `ccx` and `ccswitch` make one network request per account before they start, with
+  a 5 second timeout each.
+- Logging in to a new account is a manual step.
+
+## Install
+
+You need:
+
+- macOS. The scripts use the `security` command for the Keychain, and the BSD
+  versions of `stat` and `date`.
+- `bash`, `jq`, `curl` and `shasum`.
+- Claude Code installed as `claude`, logged in with a Claude subscription.
+- Optional: `gh` to show the pull request of the current branch in the status line,
+  `tmux` for the tmux mode, and [bats-core](https://github.com/bats-core/bats-core)
+  to run the tests.
+
+Then:
+
+1. Clone the repository. The shell functions expect it in
+   `~/projects/claude-multi-account`. If you put it somewhere else, set `CCM_HOME`
+   to that path before you source the shell file.
+
+   ```bash
+   git clone https://github.com/hernandezsanti/ccuse.git ~/projects/claude-multi-account
+   ```
+
+2. Create your accounts file from the example, and change the labels if you want:
+
+   ```bash
+   cd ~/projects/claude-multi-account
+   cp accounts.example.json accounts.json
+   ```
+
+3. Add this line to `~/.zshrc` (or `~/.bashrc`) and open a new terminal:
+
+   ```bash
+   source ~/projects/claude-multi-account/shell/claude-multi.sh
+   ```
+
+4. Check that it works without starting Claude Code. `CCM_DRY_RUN=1` prints the
+   launch command instead of running it:
+
+   ```bash
+   CCM_DRY_RUN=1 ccuse work
+   ```
+
+   The output looks like this:
+
+   ```
+   cc: using account [work] (/Users/you/.claude-work)
+   DRY: CLAUDE_CONFIG_DIR=<unset> CLAUDE_SECURESTORAGE_CONFIG_DIR=/Users/you/.claude-work claude
+   ```
+
+5. Log in to each extra account once. See [Add an account](#add-an-account).
+
+6. Configure the status line and the `Stop` hook in `~/.claude/settings.json`. Use
+   the full path to the scripts:
+
+   ```json
+   {
+     "statusLine": {
+       "type": "command",
+       "command": "/Users/you/projects/claude-multi-account/bin/statusline.sh"
+     },
+     "hooks": {
+       "Stop": [
+         { "hooks": [ { "type": "command", "command": "/Users/you/projects/claude-multi-account/bin/stop-notify.sh" } ] }
+       ]
+     }
+   }
+   ```
+
+7. Optional: install the `/fleet` slash command. The file uses the path
+   `~/projects/claude-multi-account`, so edit it if you cloned the repository in a
+   different place.
+
+   ```bash
+   ln -s ~/projects/claude-multi-account/commands/fleet.md ~/.claude/commands/fleet.md
+   ```
+
+## Usage
 
 ```bash
-ccx                  # abre Claude Code eligiendo la cuenta con cupo
-ccswitch             # relanza en otra cuenta y retoma la conversación (al ver el ⚠️)
-ccuse work     # abre una cuenta puntual por su nombre
-claude-work    # alias equivalente a `ccuse work`
+ccx                  # open Claude Code with the account that has the lowest usage
+ccuse work           # open a specific account by its label
+claude-work          # alias for `ccuse work`, created for each account
+ccswitch             # open another account and continue the same conversation
 ```
 
-Los aliases `claude-<label>` se generan solos desde `accounts.json` al abrir la terminal.
-Todo corre en un subshell: no deja variables pegadas en tu sesión.
-
-El statusline muestra la cuenta **por credencial**, no por config dir:
-
-```
-client · Opus 5 · xhigh · ctx 19% · 5h 12% ↻23:50 · 7d 44% ↻06/07 05:00
-```
-
-Al cruzar el umbral agrega `⚠️ 95% — cambia de cuenta: ccswitch`. `ccswitch` sin
-argumentos le inyecta `--continue` a `claude`, y como el historial es uno solo, retoma la
-misma conversación en la otra cuenta. `CCM_NO_CONTINUE=1 ccswitch` abre sesión limpia.
-
-### Aviso al terminar (hook Stop)
-
-`stop-notify.sh` chequea el último uso registrado por el statusline y, si la cuenta activa
-superó el umbral, muestra un aviso sugiriendo `ccswitch`. Cooldown de 300 s
-(`CCM_NOTIFY_COOLDOWN`). Se cablea en `~/.claude/settings.json` bajo `hooks.Stop`.
-
-## Setup
-
-1. Dependencias (macOS): `jq curl security shasum`, y `bats-core` para los tests.
-2. El statusline y el hook se cablean en `~/.claude/settings.json` (`statusLine.command`,
-   `hooks.Stop`).
-3. `source ~/projects/claude-multi-account/shell/claude-multi.sh` en `~/.zshrc`.
-4. `ln -s ~/projects/claude-multi-account/commands/fleet.md ~/.claude/commands/fleet.md`.
-
-### Agregar una cuenta
+All these commands pass extra arguments to `claude`:
 
 ```bash
-bin/cc-new-account.sh cliente              # dir de credencial: ~/.claude-cliente
-bin/cc-new-account.sh cliente ~/otro/dir   # dir explícito
-bin/cc-new-account.sh --check cliente      # diagnostica sin escribir
+ccuse work -n my-session "initial prompt"
+ccx --model opus
 ```
 
-Crea el dir, registra la cuenta y, si no hay credencial en Keychain, imprime el comando de
-login. El login sí va a mano, en una **terminal real** (no dentro de Claude Code):
+`ccx` checks the usage of every account and picks the one with the lowest 5 hour
+usage, among the accounts that are below the threshold on both the 5 hour and the 7
+day limit. If all accounts are over the threshold, it picks the one whose 5 hour
+window resets first.
+
+`ccswitch` does the same, but it skips the current account. Without arguments it adds
+`--continue`, and since the history is shared, the conversation continues in the
+other account. Use `CCM_NO_CONTINUE=1 ccswitch` to start a new session instead.
+
+The `claude-<label>` aliases are created from `accounts.json` every time the shell
+file is sourced. Claude Code starts in a subshell, so no variables stay in your
+terminal.
+
+To list the background sessions of all accounts, use `bin/cc-fleet.sh` or the
+`/fleet` command. It reads `jobs/*/state.json` and `daemon/roster.json` from the
+directory of each account and does not write anything. A session marked `·dead` has no live
+worker. If it also says `working`, it is probably stuck. Use `--all` to include
+finished sessions.
+
+With one shared config directory, the built-in background sessions panel already
+shows everything. This command is mostly useful for sessions that were started with
+one config directory per account.
+
+### tmux mode
+
+With `CCM_TMUX=1`, the commands above run Claude Code inside a tmux session. If the
+terminal crashes, the session keeps running and you can get it back with
+`tmux attach -t <name>`. The session name is the `-n` value if you pass one,
+otherwise `cc-<folder>-<hhmmss>`. tmux is not used if you are already inside tmux or
+if you pass `-p`.
 
 ```bash
-CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-cliente" claude    # adentro: /login, luego /exit
+t ccuse work -n my-session   # same as CCM_TMUX=1 ccuse work -n my-session
+ccsessions                   # list the tmux sessions, to find one after a crash
 ```
 
-**No usar `CLAUDE_CONFIG_DIR` para loguear.** Loguear con la variable equivocada pisa la
-credencial de otra cuenta sin avisar (#79223).
+## Configure accounts
 
-### Migrar desde el modelo viejo (un `CLAUDE_CONFIG_DIR` por cuenta)
+`accounts.json` lists your accounts and the warning threshold:
 
-No hay que re-loguear nada: la entrada de Keychain se deriva del mismo string que antes
-iba en `CLAUDE_CONFIG_DIR`, así que `CLAUDE_SECURESTORAGE_CONFIG_DIR=~/.claude-work`
-apunta a la misma credencial. Alcanza con reabrir la terminal.
+```json
+{
+  "accounts": [
+    { "label": "personal", "configDir": "~/.claude" },
+    { "label": "work",     "configDir": "~/.claude-work" }
+  ],
+  "threshold": 95
+}
+```
 
-Los `~/.claude-<label>` viejos quedan con symlinks vestigiales (`projects`, `sessions`,
-`skills`…) que ya no lee nadie. Son inofensivos; se pueden borrar. Lo que sí sigue
-importando en ellos es el path mismo: **no renombrarlos**, o la credencial deja de
-resolver.
+- `label` is the name you use with `ccuse` and the name shown in the status line.
+- `configDir` is the credential directory. `~/.claude` is the default account. For
+  the other accounts it is a separate directory that only holds the credential.
+- `threshold` is the usage percentage that triggers the warning. The default is 95.
+- An account can also have `keychainService` to force the name of the Keychain
+  entry, if the derived name does not match.
 
-Las sesiones en background que arrancaron con el modelo viejo siguen en su daemon
-por cuenta hasta que terminen. `/fleet` las ve; el `esc` de una sesión nueva no.
+### Add an account
 
-## Lo que queda compartido entre cuentas (y no era así antes)
+Use `bin/cc-new-account.sh`. It creates the directory, adds the account to
+`accounts.json` (and keeps a backup of the old file), and checks the Keychain. It is
+safe to run more than once.
 
-Con un solo `.claude.json`: los MCP de scope user (antes había que replicarlos), la
-lista de carpetas recientes, `tipsHistory`, el up-arrow (`history.jsonl`). Es lo que se
-quería.
+```bash
+bin/cc-new-account.sh work                 # credential dir: ~/.claude-work
+bin/cc-new-account.sh work ~/other/dir     # explicit credential dir
+bin/cc-new-account.sh --check work         # only checks, does not write anything
+```
 
-Y lo que se comparte **sin querer**, por bugs conocidos de Claude Code en este modo:
+If there is no credential yet, the script prints the login command. You have to run
+it yourself, in a real terminal and not inside Claude Code:
 
-- **`/status` y el banner muestran la última cuenta que arrancó**, no la de la sesión
-  (#79222). `oauthAccount` en `.claude.json` se reescribe en cada arranque. Es cosmético:
-  billing, rate limits y refresh siguen a la credencial. El statusline de este repo sí
-  dice la cuenta correcta.
-- **`mcp-needs-auth-cache.json`** no está namespaceado (#87702): si un conector claude.ai
-  falla auth en una cuenta, la otra lo salta 15 min aunque tenga token válido. Workaround:
-  `rm -f ~/.claude/mcp-needs-auth-cache.json`.
-- `policy-limits.json` lleva `compliance_taints` por org y queda el de la última cuenta.
-  Sin síntoma conocido todavía.
+```bash
+CLAUDE_SECURESTORAGE_CONFIG_DIR="$HOME/.claude-work" claude    # then /login and /exit
+```
 
-El detalle y los issues a los que sumarse están en `docs/anthropic-issue-fleet-multi-account.md`.
+Do not use `CLAUDE_CONFIG_DIR` to log in. If you log in with the wrong variable, you
+can overwrite the credential of another account without any warning.
+
+If you used one `CLAUDE_CONFIG_DIR` per account before, you do not need to log in
+again. The Keychain entry is derived from the same string, so the same directory path
+points to the same credential. Do not rename those directories, or the credential
+will stop resolving.
+
+## Status line
+
+The status line shows everything in one row:
+
+```
+work · feature/login · 3 uncommitted · 1a2b3c4d · Opus 5 · xhigh · $1.42 · ctx 19% · 5h 12% ↻23:50 · 7d 44% ↻06/07 05:00
+```
+
+From left to right:
+
+- The account label. It comes from the credential of the session, not from the config
+  directory.
+- A git segment, only inside a repository: the branch, `worktree` if it is a linked
+  worktree, the number of uncommitted files, the number of unpushed commits, and
+  `no upstream` if the branch has no upstream. On `main` or `master` the segment is
+  shown in red with the word `PRODUCTION`.
+- The pull request of the branch and its CI status, if `gh` is installed and the
+  branch is pushed (not on `main` or `master`). The data comes from `gh pr view`, which runs in the background
+  and is cached for 2 minutes in `state/`, so the status line never waits for the
+  network.
+- The first 8 characters of the session id, linked to the transcript file.
+- The model, the effort level and the session cost.
+- The context window usage.
+- The 5 hour and 7 day usage, each with the time it resets.
+
+Percentages are green below 75%, yellow from 75%, and red from the threshold. When
+the 5 hour or the 7 day usage reaches the threshold, the line adds a red warning:
+`⚠️  95%: switch account with ccswitch`.
+
+The status line also saves the last usage of each account in `state/`. The `Stop`
+hook (`bin/stop-notify.sh`) reads that file when a turn ends. If the current account
+is over the threshold, it shows a message that suggests `ccswitch`. It does not call
+the API. It ignores readings older than 10 minutes (`CCM_NOTIFY_FRESH`) and does not
+repeat the warning within 5 minutes (`CCM_NOTIFY_COOLDOWN`).
+
+## How it works
+
+Claude Code reads its credential from the macOS Keychain. The name of the Keychain
+entry is derived from the exact string in `CLAUDE_SECURESTORAGE_CONFIG_DIR`: it is
+`Claude Code-credentials` followed by `-` and the first 8 characters of the SHA-256 of
+that string. When the variable is empty, there is no suffix. When the variable is not
+set, Claude Code uses `CLAUDE_CONFIG_DIR` instead.
+
+So each extra account has an almost empty directory, for example `~/.claude-work`.
+Its only job is to be a stable string that points to one Keychain entry. When you run
+`ccuse work`, the tool starts Claude Code like this, inside a subshell:
+
+```bash
+unset CLAUDE_CONFIG_DIR
+CLAUDE_SECURESTORAGE_CONFIG_DIR=~/.claude-work claude
+```
+
+The default account (`~/.claude`) is started with the variable set to an empty
+string, not unset. An empty value selects the default credential even if
+`CLAUDE_CONFIG_DIR` is exported in your shell.
+
+Usage numbers come from two places:
+
+- While a session runs, Claude Code passes `rate_limits.*.used_percentage` to the
+  status line command. These values come from the API responses, so they belong to
+  the credential of that session.
+- Before a session starts, `bin/cc-usage.sh` calls
+  `GET https://api.anthropic.com/api/oauth/usage` with the token of each account,
+  which it reads from the Keychain. This is how `ccx` and `ccswitch` choose an
+  account.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CCM_HOME` | `~/projects/claude-multi-account` | Where the repository is. |
+| `CCM_ACCOUNTS_FILE` | `$CCM_HOME/accounts.json` | The accounts file. |
+| `CCM_BASE_DIR` | `~/.claude` | The default config directory. `cc-new-account.sh` refuses to add it as a new account. |
+| `CCM_STATE_DIR` | `<repo>/state` | Where the usage and pull request caches are saved. |
+| `CCM_TMUX` | not set | `1` runs Claude Code inside tmux. |
+| `CCM_NO_CONTINUE` | not set | `1` makes `ccswitch` open a new session. |
+| `CCM_NOTIFY_COOLDOWN` | `300` | Seconds between two warnings from the `Stop` hook. |
+| `CCM_NOTIFY_FRESH` | `600` | Maximum age, in seconds, of a usage reading for the hook. |
+| `CCM_DRY_RUN` | not set | Print the launch command instead of running it. |
+| `CCM_USAGE_CMD` | `bin/cc-usage.sh` | The command that returns the usage of an account. The tests and the demo replace it. |
+| `CCM_PICK_CMD` | `bin/cc-pick.sh` | The command that picks an account for `ccx` and `ccswitch`. |
+| `CCM_DUMP_INPUT` | not set | A file where the status line writes the JSON it receives, for debugging. |
 
 ## Tests
+
+The tests use [bats-core](https://github.com/bats-core/bats-core). They use stubs and
+temporary directories, so they do not touch your real accounts or Keychain entries.
 
 ```bash
 bats test/
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -20,10 +20,10 @@ jget() { printf '%s' "$input" | jq -r "$1 // empty" 2>/dev/null; }
 # corrupting whatever follows.
 osc8() { printf '\\033]8;;%s\\033\\\\%s\\033]8;;\\033\\\\' "$1" "$2"; } # $1=url $2=label
 
-# La cuenta la dice la credencial, no el config dir: con todas las cuentas sobre
-# ~/.claude, .config_dir del JSON es siempre el mismo. La env var la hereda este
-# proceso del claude que lo lanzó. Si no está (sesión del modelo viejo), cae al
-# config_dir como antes.
+# The account comes from the credential, not from the config dir: with all accounts
+# on ~/.claude, .config_dir in the JSON is always the same. This process inherits
+# the env var from the claude process that started it. If it is not set (a session
+# from the old setup), fall back to config_dir.
 cfg="${CLAUDE_SECURESTORAGE_CONFIG_DIR:-}"
 [ -n "$cfg" ] || cfg="$(jget '.config_dir')"
 cfg="${cfg:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
@@ -42,31 +42,31 @@ sd="$(jget '.rate_limits.seven_day.used_percentage')"
 fhr="$(jget '.rate_limits.five_hour.resets_at')"
 sdr="$(jget '.rate_limits.seven_day.resets_at')"
 
-pick_col() { # $1=pct -> stdout color ANSI (literal escapado)
+pick_col() { # $1=pct -> ANSI color on stdout (as escaped text)
   if awk "BEGIN{exit !($1>=$THR)}"; then printf '\\033[31m'
   elif awk "BEGIN{exit !($1>=75)}"; then printf '\\033[33m'
   else printf '\\033[32m'; fi
 }
-reset_str() { # $1=epoch $2=fmt -> " ↻<hora>" en dim, o vacío
+reset_str() { # $1=epoch $2=fmt -> " ↻<time>" in dim, or nothing
   local s; [ -n "$1" ] && s="$(date -r "$1" +"$2" 2>/dev/null)" || return 0
   [ -n "$s" ] && printf ' %s↻%s%s' "$DIM" "$s" "$R"
 }
 
-# --- Segmento git: rama, worktree, cambios, commits sin pushear y PR --------
-# Solo dentro de un repo git. Todo es local y barato salvo el PR, que sale de
-# `gh pr view` (red): se pide en segundo plano y se lee de una caché de 2 min,
-# así la status bar nunca espera a la red.
+# --- Git segment: branch, worktree, changes, unpushed commits and PR ---------
+# Only inside a git repo. Everything is local and cheap except the PR, which
+# comes from `gh pr view` (network): it is fetched in the background and read
+# from a 2 minute cache, so the status line never waits for the network.
 CWD="$(jget '.workspace.current_dir')"
 [ -n "$CWD" ] || CWD="$(jget '.cwd')"
 PR_CACHE_DIR="${CCM_STATE_DIR:-$HERE/../state}"
 PR_TTL=120
 
-file_age() { # $1=archivo -> segundos desde su última modificación (enorme si no existe)
+file_age() { # $1=file -> seconds since its last change (very large if it does not exist)
   local m; m="$(stat -f %m "$1" 2>/dev/null || echo 0)"
   echo $(( $(date +%s) - m ))
 }
 
-refresh_pr() { # $1=directorio $2=archivo de caché; corre desacoplado de la status bar
+refresh_pr() { # $1=directory $2=cache file; runs detached from the status line
   (
     cd "$1" 2>/dev/null || exit 0
     tmp="$2.$$"
@@ -87,10 +87,10 @@ git_line() {
   ahead="$(printf '%s\n' "$st" | awk '/^# branch.ab /{gsub(/\+/,"",$3); print $3}')"
   has_up="$(printf '%s\n' "$st" | grep -c '^# branch.upstream ' || true)"
   changes="$(printf '%s\n' "$st" | grep -cE '^[12u?] ' || true)"
-  [ "$branch" = "(detached)" ] && branch="HEAD suelto"
+  [ "$branch" = "(detached)" ] && branch="detached HEAD"
 
-  # Rutas absolutas: desde un subdirectorio git-dir sale absoluto y
-  # git-common-dir relativo, y comparados así un checkout parece un worktree.
+  # Absolute paths: from a subdirectory, git-dir is absolute and git-common-dir
+  # is relative, and comparing them like that makes a checkout look like a worktree.
   local gd cd_ is_wt=0
   { read -r gd; read -r cd_; } < <(git -C "$CWD" rev-parse --path-format=absolute --git-dir --git-common-dir 2>/dev/null) || true
   [ -n "$gd" ] && [ "$gd" != "$cd_" ] && is_wt=1
@@ -100,14 +100,14 @@ git_line() {
 
   local seg="$branch"
   [ "$is_wt" -eq 1 ] && seg="$seg · worktree"
-  [ "${changes:-0}" -gt 0 ] && seg="$seg · $changes sin commitear"
-  if [ "${ahead:-0}" -gt 0 ]; then seg="$seg · $ahead sin pushear"
-  elif [ "${has_up:-0}" -eq 0 ] && [ "$prod" -eq 0 ]; then seg="$seg · sin upstream"; fi
+  [ "${changes:-0}" -gt 0 ] && seg="$seg · $changes uncommitted"
+  if [ "${ahead:-0}" -gt 0 ]; then seg="$seg · $ahead unpushed"
+  elif [ "${has_up:-0}" -eq 0 ] && [ "$prod" -eq 0 ]; then seg="$seg · no upstream"; fi
 
-  if [ "$prod" -eq 1 ]; then printf '\\033[1;31mPRODUCCIÓN %s%s' "$seg" "$R"
+  if [ "$prod" -eq 1 ]; then printf '\\033[1;31mPRODUCTION %s%s' "$seg" "$R"
   else printf '%s%s%s' "$DIM" "$seg" "$R"; fi
 
-  # PR de la rama: solo si ya está pusheada, no es producción y hay gh.
+  # PR of the branch: only if it is pushed, it is not production, and gh is installed.
   [ "$prod" -eq 0 ] && [ "${has_up:-0}" -gt 0 ] && command -v gh >/dev/null 2>&1 || return 0
   local top key cache
   top="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)" || return 0
@@ -129,19 +129,19 @@ git_line() {
      elif any($r[]; o | IN("FAILURE","TIMED_OUT","CANCELLED","ACTION_REQUIRED","STARTUP_FAILURE","ERROR")) then "fail"
      elif all($r[]; if (.status // "") != "" then (.status | ascii_upcase) == "COMPLETED" else o != "PENDING" end) then "ok"
      else "pending" end) as $c |
-    [.number, ((if .isDraft then "borrador" elif .state == "OPEN" then "-" else (.state | ascii_downcase) end)), $c, .url] | @tsv
+    [.number, ((if .isDraft then "draft" elif .state == "OPEN" then "-" else (.state | ascii_downcase) end)), $c, .url] | @tsv
   ' "$cache" 2>/dev/null)" || return 0
   [ -n "$info" ] || return 0
 
   local num state checks url label col
-  # El estado vacío (PR abierto) viaja como "-": con un campo vacío, `read` juntaría los tabuladores.
+  # An empty state (open PR) is sent as "-": with an empty field, `read` would merge the tabs.
   IFS=$'\t' read -r num state checks url <<< "$info"
   [ "$state" = "-" ] && state=""
   case "$checks" in
     ok) label="CI ok"; col='\033[32m' ;;
-    fail) label="CI falla"; col='\033[31m' ;;
-    pending) label="CI corriendo"; col='\033[33m' ;;
-    *) label="sin CI"; col="$DIM" ;;
+    fail) label="CI failing"; col='\033[31m' ;;
+    pending) label="CI running"; col='\033[33m' ;;
+    *) label="no CI"; col="$DIM" ;;
   esac
   printf ' · %s%s%s%s · %s%s%s' "$DIM" "$(osc8 "$url" "PR #$num")" "${state:+ $state}" "$R" "$col" "$label" "$R"
 }
@@ -172,9 +172,9 @@ fi
 alert=0
 [ -n "$fh" ] && awk "BEGIN{exit !($fh>=$THR)}" && alert=1
 [ -n "$sd" ] && awk "BEGIN{exit !($sd>=$THR)}" && alert=1
-[ "$alert" -eq 1 ] && out="$out  \\033[1;31m⚠️  ${THR}% — cambia de cuenta: ccswitch$R"
+[ "$alert" -eq 1 ] && out="$out  \\033[1;31m⚠️  ${THR}%: switch account with ccswitch$R"
 
-# Guarda el último uso para que el hook Stop lo lea sin llamar a la API.
+# Save the last usage so the Stop hook can read it without calling the API.
 STATE_DIR="${CCM_STATE_DIR:-$HERE/../state}"
 if [ -n "$fh$sd" ]; then
   mkdir -p "$STATE_DIR" 2>/dev/null && \

@@ -1,0 +1,7 @@
+{
+  "accounts": [
+    { "label": "personal", "configDir": "~/.claude" },
+    { "label": "work",     "configDir": "~/.claude-work" }
+  ],
+  "threshold": 95
+}

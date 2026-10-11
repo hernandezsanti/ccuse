@@ -2,25 +2,25 @@ setup() {
   ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
   export CCM_ACCOUNTS_FILE="$ROOT/test/fixtures/accounts.sample.json"
   export CCM_STATE_DIR="$BATS_TEST_TMPDIR/state"
-  # Dentro de una sesion de Claude la credencial ya viene fijada y taparia el label del fixture.
+  # Inside a Claude session the credential is already set and would hide the fixture label.
   unset CLAUDE_SECURESTORAGE_CONFIG_DIR CLAUDE_CONFIG_DIR
 }
 
-# Repo git de juguete en $BATS_TEST_TMPDIR/repo, parado en la rama $1.
+# Toy git repo in $BATS_TEST_TMPDIR/repo, on branch $1.
 mkrepo() {
   REPO="$BATS_TEST_TMPDIR/repo"
   git init -q -b "$1" "$REPO"
   git -C "$REPO" -c user.email=a@b -c user.name=a commit -q --allow-empty -m i
 }
 
-# Corre el statusline con current_dir=$1 y deja la salida, sin colores, en $output.
+# Runs the status line with current_dir=$1 and leaves the output, without colors, in $output.
 sl_in() {
   local json
   json="$(jq -cn --arg d "$1" '{workspace:{current_dir:$d},cost:{total_cost_usd:4.5123}}')"
   run bash -c "printf '%s' '$json' | '$ROOT/bin/statusline.sh' | sed \$'s/\\x1b\\\\[[0-9;]*m//g'"
 }
 
-@test "muestra modelo, effort y contexto" {
+@test "shows model, effort and context" {
   json='{"model":{"display_name":"Opus 4.8"},"effort":{"level":"xhigh"},"context_window":{"used_percentage":19},"rate_limits":{"five_hour":{"used_percentage":5},"seven_day":{"used_percentage":31}}}'
   run bash -c "printf '%s' '$json' | '$ROOT/bin/statusline.sh'"
   [[ "$output" == *"Opus 4.8"* ]]
@@ -30,7 +30,7 @@ sl_in() {
   [[ "$output" == *"7d 31%"* ]]
 }
 
-@test "muestra la hora de reset de 5h y 7d" {
+@test "shows the 5h and 7d reset time" {
   fhr=1783133400; sdr=1783324800
   json='{"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":'"$fhr"'},"seven_day":{"used_percentage":31,"resets_at":'"$sdr"'}}}'
   run bash -c "printf '%s' '$json' | '$ROOT/bin/statusline.sh'"
@@ -40,71 +40,71 @@ sl_in() {
   [[ "$output" == *"$exp7"* ]]
 }
 
-@test "muestra label y porcentajes" {
+@test "shows label and percentages" {
   json='{"config_dir":"'"$HOME"'/.claude","rate_limits":{"five_hour":{"used_percentage":40},"seven_day":{"used_percentage":10}}}'
   run bash -c "printf '%s' '$json' | '$ROOT/bin/statusline.sh'"
-  [[ "$output" == *"uno"* ]]
+  [[ "$output" == *"one"* ]]
   [[ "$output" == *"5h 40%"* ]]
   [[ "$output" == *"7d 10%"* ]]
   [[ "$output" != *"⚠"* ]]
 }
 
-@test "alerta al cruzar 95 (umbral fixture=90)" {
+@test "warns at 95 (fixture threshold=90)" {
   json='{"config_dir":"'"$HOME"'/.claude","rate_limits":{"five_hour":{"used_percentage":95},"seven_day":{"used_percentage":10}}}'
   run bash -c "printf '%s' '$json' | '$ROOT/bin/statusline.sh'"
   [[ "$output" == *"ccswitch"* ]]
 }
 
-@test "la cuenta sale de la variable de credencial, no del config_dir" {
-  # config_dir es el default (label uno) pero la credencial es la de dos
+@test "the account comes from the credential variable, not from config_dir" {
+  # config_dir is the default (label one) but the credential belongs to two
   json='{"config_dir":"'"$HOME"'/.claude","rate_limits":{"five_hour":{"used_percentage":40}}}'
-  run bash -c "CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos printf '%s' '$json' | CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-dos '$ROOT/bin/statusline.sh'"
-  [[ "$output" == *"dos"* ]]
-  [[ "$output" != *"uno"* ]]
+  run bash -c "CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-two printf '%s' '$json' | CLAUDE_SECURESTORAGE_CONFIG_DIR=/tmp/cc-two '$ROOT/bin/statusline.sh'"
+  [[ "$output" == *"two"* ]]
+  [[ "$output" != *"one"* ]]
 }
 
-@test "la variable de credencial vacia significa cuenta default" {
+@test "an empty credential variable means the default account" {
   json='{"config_dir":"'"$HOME"'/.claude"}'
   run bash -c "printf '%s' '$json' | CLAUDE_SECURESTORAGE_CONFIG_DIR= '$ROOT/bin/statusline.sh'"
-  [[ "$output" == *"uno"* ]]
+  [[ "$output" == *"one"* ]]
 }
 
-@test "no rompe si falta rate_limits" {
+@test "does not fail when rate_limits is missing" {
   json='{"config_dir":"'"$HOME"'/.claude"}'
   run bash -c "printf '%s' '$json' | '$ROOT/bin/statusline.sh'"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"uno"* ]]
+  [[ "$output" == *"one"* ]]
 }
 
-@test "muestra el costo de la sesion con dos decimales" {
+@test "shows the session cost with two decimals" {
   json='{"cost":{"total_cost_usd":4.5123}}'
   run bash -c "printf '%s' '$json' | '$ROOT/bin/statusline.sh'"
   [[ "$output" == *'$4.51'* ]]
 }
 
-@test "sin costo en el JSON no inventa uno" {
+@test "does not show a cost when the JSON has none" {
   run bash -c "printf '%s' '{}' | '$ROOT/bin/statusline.sh'"
   [[ "$output" != *'$'* ]]
 }
 
-@test "en main avisa PRODUCCION, en la misma fila" {
+@test "on main it shows PRODUCTION, on the same line" {
   mkrepo main
   sl_in "$REPO"
-  [[ "$output" == *"PRODUCCIÓN main"* ]]
+  [[ "$output" == *"PRODUCTION main"* ]]
   [ "$(printf '%s' "$output" | wc -l | tr -d ' ')" -eq 0 ]
 }
 
-@test "en una rama de feature cuenta los archivos sin commitear" {
+@test "on a feature branch it counts uncommitted files" {
   mkrepo main
   git -C "$REPO" checkout -q -b feature/login
   echo x > "$REPO/a.txt"
   sl_in "$REPO"
   [[ "$output" == *"feature/login"* ]]
-  [[ "$output" == *"1 sin commitear"* ]]
-  [[ "$output" != *"PRODUCCIÓN"* ]]
+  [[ "$output" == *"1 uncommitted"* ]]
+  [[ "$output" != *"PRODUCTION"* ]]
 }
 
-@test "desde un subdirectorio de un repo normal no dice worktree" {
+@test "from a subdirectory of a normal repo it does not say worktree" {
   mkrepo main
   mkdir -p "$REPO/sub/dir"
   sl_in "$REPO/sub/dir"
@@ -112,7 +112,7 @@ sl_in() {
   [[ "$output" != *"worktree"* ]]
 }
 
-@test "en un worktree enlazado lo dice" {
+@test "in a linked worktree it says worktree" {
   mkrepo main
   git -C "$REPO" worktree add -q "$BATS_TEST_TMPDIR/wt" -b feature/worktree-test
   sl_in "$BATS_TEST_TMPDIR/wt"
@@ -120,14 +120,14 @@ sl_in() {
   [[ "$output" == *"worktree"* ]]
 }
 
-@test "fuera de un repo no agrega segmento git" {
+@test "outside a repo there is no git segment" {
   mkdir -p "$BATS_TEST_TMPDIR/nada"
   sl_in "$BATS_TEST_TMPDIR/nada"
-  [[ "$output" != *"sin commitear"* ]]
-  [[ "$output" != *"PRODUCCIÓN"* ]]
+  [[ "$output" != *"uncommitted"* ]]
+  [[ "$output" != *"PRODUCTION"* ]]
 }
 
-@test "muestra el PR desde la cache, sin llamar a gh" {
+@test "shows the PR from the cache, without calling gh" {
   mkrepo main
   git init -q --bare "$BATS_TEST_TMPDIR/remote.git"
   git -C "$REPO" remote add origin "$BATS_TEST_TMPDIR/remote.git"

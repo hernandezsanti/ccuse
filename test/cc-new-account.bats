@@ -9,7 +9,7 @@ setup() {
   printf '{"accounts":[{"label":"personal","configDir":"~/.claude"}],"threshold":95}\n' \
     > "$CCM_ACCOUNTS_FILE"
 
-  # fake security: hay credencial solo si existe el archivo marcador
+  # fake security: there is a credential only if the marker file exists
   BIN="$TMP/bin"; mkdir -p "$BIN"
   cat > "$BIN/security" <<EOF
 #!/usr/bin/env bash
@@ -18,71 +18,71 @@ EOF
   chmod +x "$BIN/security"
   export PATH="$BIN:$PATH"
 
-  NEW="$TMP/.claude-nueva"
+  NEW="$TMP/.claude-new"
 }
 
-@test "crea el dir de credencial y registra la cuenta" {
-  run "$SCRIPT" nueva "$NEW"
+@test "creates the credential dir and registers the account" {
+  run "$SCRIPT" new "$NEW"
   [ "$status" -eq 0 ]
   [ -d "$NEW" ]
-  run jq -r '.accounts[] | select(.label=="nueva") | .configDir' "$CCM_ACCOUNTS_FILE"
+  run jq -r '.accounts[] | select(.label=="new") | .configDir' "$CCM_ACCOUNTS_FILE"
   [ "$output" = "$NEW" ]
   ls "$CCM_ACCOUNTS_FILE".bak.* >/dev/null
 }
 
-@test "no crea ningun symlink: la cuenta es solo la credencial" {
-  run "$SCRIPT" nueva "$NEW"
+@test "creates no symlinks: an account is only a credential" {
+  run "$SCRIPT" new "$NEW"
   [ "$status" -eq 0 ]
   [ "$(find "$NEW" -type l | wc -l | tr -d ' ')" = "0" ]
 }
 
-@test "sin credencial imprime el comando de login con la variable correcta" {
-  run "$SCRIPT" nueva "$NEW"
+@test "without a credential it prints the login command with the right variable" {
+  run "$SCRIPT" new "$NEW"
   [ "$status" -eq 0 ]
   [[ "$output" == *"CLAUDE_SECURESTORAGE_CONFIG_DIR=\"$NEW\" claude"* ]]
-  [[ "$output" == *"NO uses CLAUDE_CONFIG_DIR"* ]]
+  [[ "$output" == *"do NOT use CLAUDE_CONFIG_DIR"* ]]
 }
 
-@test "con credencial no pide login" {
+@test "with a credential it does not ask to log in" {
   touch "$TMP/has-cred"
-  run "$SCRIPT" nueva "$NEW"
+  run "$SCRIPT" new "$NEW"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"ya hay credenciales"* ]]
+  [[ "$output" == *"credentials already in Keychain"* ]]
   [[ "$output" != *"/login"* ]]
 }
 
-@test "es idempotente y no duplica el registro" {
-  "$SCRIPT" nueva "$NEW" >/dev/null
-  "$SCRIPT" nueva "$NEW" >/dev/null
-  run jq '[.accounts[] | select(.label=="nueva")] | length' "$CCM_ACCOUNTS_FILE"
+@test "is idempotent and does not duplicate the entry" {
+  "$SCRIPT" new "$NEW" >/dev/null
+  "$SCRIPT" new "$NEW" >/dev/null
+  run jq '[.accounts[] | select(.label=="new")] | length' "$CCM_ACCOUNTS_FILE"
   [ "$output" = "1" ]
 }
 
-@test "--check falla si falta algo y no escribe" {
-  run "$SCRIPT" --check nueva "$NEW"
+@test "--check fails when something is missing and writes nothing" {
+  run "$SCRIPT" --check new "$NEW"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"FALTA"* ]]
+  [[ "$output" == *"MISSING"* ]]
   [ ! -e "$NEW" ]
-  run jq '[.accounts[] | select(.label=="nueva")] | length' "$CCM_ACCOUNTS_FILE"
+  run jq '[.accounts[] | select(.label=="new")] | length' "$CCM_ACCOUNTS_FILE"
   [ "$output" = "0" ]
 }
 
-@test "--check pasa en una cuenta completa" {
+@test "--check passes on a complete account" {
   touch "$TMP/has-cred"
-  "$SCRIPT" nueva "$NEW" >/dev/null
-  run "$SCRIPT" --check nueva "$NEW"
+  "$SCRIPT" new "$NEW" >/dev/null
+  run "$SCRIPT" --check new "$NEW"
   [ "$status" -eq 0 ]
   [[ "$output" == *"OK"* ]]
 }
 
-@test "rechaza un label inválido" {
-  run "$SCRIPT" 'mal label!'
+@test "rejects an invalid label" {
+  run "$SCRIPT" 'bad label!'
   [ "$status" -ne 0 ]
-  [[ "$output" == *"label inválido"* ]]
+  [[ "$output" == *"invalid label"* ]]
 }
 
-@test "rechaza dar de alta la cuenta default" {
+@test "refuses to add the default account" {
   run "$SCRIPT" base "$CCM_BASE_DIR"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"cuenta default"* ]]
+  [[ "$output" == *"default account"* ]]
 }

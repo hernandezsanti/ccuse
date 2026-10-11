@@ -4,13 +4,13 @@ setup() {
   source "$ROOT/bin/cc-lib.sh"
 }
 
-@test "servicio Keychain default para HOME/.claude" {
+@test "default Keychain service for HOME/.claude" {
   run ccm_keychain_service "$HOME/.claude"
   [ "$output" = "Claude Code-credentials" ]
 }
 
-@test "servicio Keychain hasheado para config dir no-default" {
-  expected="Claude Code-credentials-$(printf '%s' "/tmp/cc-dos" | shasum -a 256 | cut -c1-8)"
-  run ccm_keychain_service "/tmp/cc-dos"
+@test "hashed Keychain service for a non-default config dir" {
+  expected="Claude Code-credentials-$(printf '%s' "/tmp/cc-two" | shasum -a 256 | cut -c1-8)"
+  run ccm_keychain_service "/tmp/cc-two"
   [ "$output" = "$expected" ]
 }

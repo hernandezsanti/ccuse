@@ -1,11 +1,11 @@
-# cc-lib.sh — helpers compartidos. Sin shebang: se sourcea. Compatible bash/zsh.
+# cc-lib.sh: shared helpers. No shebang: this file is sourced. Works in bash and zsh.
 if [ -z "${CCM_ROOT:-}" ]; then
   if [ -n "${CCM_HOME:-}" ]; then
     CCM_ROOT="$CCM_HOME"
   elif [ -n "${BASH_SOURCE:-}" ]; then
     CCM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   else
-    # zsh: $0 apunta al archivo sourceado
+    # zsh: $0 points to the sourced file
     CCM_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
   fi
 fi
@@ -18,7 +18,7 @@ ccm_require_deps() {
   for c in jq curl security shasum; do
     command -v "$c" >/dev/null 2>&1 || missing+=("$c")
   done
-  [ "${#missing[@]}" -eq 0 ] || ccm_die "faltan dependencias: ${missing[*]}"
+  [ "${#missing[@]}" -eq 0 ] || ccm_die "missing dependencies: ${missing[*]}"
 }
 
 ccm_expand() {
@@ -31,18 +31,18 @@ ccm_expand() {
 
 ccm_threshold() { jq -r '.threshold // 95' "$CCM_ACCOUNTS_FILE"; }
 
-# ccm_base_dir — el único config dir. Todas las cuentas corren sobre él.
+# ccm_base_dir: the single config dir. All accounts run on top of it.
 ccm_base_dir() { printf '%s' "${CCM_BASE_DIR:-$HOME/.claude}"; }
 
-# ccm_current_dir — el dir de credencial de la sesión actual, para saber qué
-# cuenta es. Con el modelo nuevo viene en CLAUDE_SECURESTORAGE_CONFIG_DIR
-# (vacío = cuenta default); CLAUDE_CONFIG_DIR queda como fallback para las
-# sesiones que arrancaron con el modelo viejo y siguen vivas.
+# ccm_current_dir: the credential dir of the current session, used to know which
+# account it is. With the current setup it comes from CLAUDE_SECURESTORAGE_CONFIG_DIR
+# (empty means the default account). CLAUDE_CONFIG_DIR is a fallback for sessions
+# that started with the old setup (one config dir per account) and are still alive.
 ccm_current_dir() {
   printf '%s' "${CLAUDE_SECURESTORAGE_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
 }
 
-# ccm_slug <texto> — normaliza a un nombre de archivo seguro
+# ccm_slug <text>: turns text into a safe file name
 ccm_slug() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'; }
 
 ccm_accounts() {
@@ -68,8 +68,8 @@ ccm_read_token() {
   local dir="$1" svc blob tok
   svc="$(ccm_keychain_service "$dir")"
   blob="$(security find-generic-password -s "$svc" -w 2>/dev/null)" \
-    || { ccm_die "sin credenciales en Keychain ($svc)"; return 1; }
+    || { ccm_die "no credentials in Keychain ($svc)"; return 1; }
   tok="$(printf '%s' "$blob" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)"
-  [ -n "$tok" ] || { ccm_die "token vacío ($svc)"; return 1; }
+  [ -n "$tok" ] || { ccm_die "empty token ($svc)"; return 1; }
   printf '%s' "$tok"
 }

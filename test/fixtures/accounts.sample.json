@@ -1,7 +1,7 @@
 {
   "accounts": [
-    { "label": "uno", "configDir": "~/.claude" },
-    { "label": "dos", "configDir": "/tmp/cc-dos" }
+    { "label": "one", "configDir": "~/.claude" },
+    { "label": "two", "configDir": "/tmp/cc-two" }
   ],
   "threshold": 90
 }

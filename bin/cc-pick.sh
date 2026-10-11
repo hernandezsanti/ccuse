@@ -21,13 +21,13 @@ while IFS=$'\t' read -r _label dir; do
   sd="$(printf '%s' "$u" | jq -r '.seven_day // empty' 2>/dev/null)"
   rs="$(printf '%s' "$u" | jq -r '.five_hour_resets_at // empty' 2>/dev/null)"
 
-  # fallback: reset más cercano (comparación lexicográfica de ISO8601)
+  # fallback: the nearest reset (ISO 8601 strings compare correctly as text)
   if [ -n "$rs" ]; then
     if [ -z "$fb_reset" ] || [[ "$rs" < "$fb_reset" ]]; then fb_reset="$rs"; fb_dir="$dir"; fi
   fi
   [ -z "$fb_dir" ] && fb_dir="$dir"
 
-  # candidato válido bajo umbral
+  # valid candidate: below the threshold
   [ -n "$fh" ] || continue
   maxu="$(printf '%s\n%s\n' "$fh" "${sd:-0}" | sort -nr | head -1)"
   lt "$maxu" "$THR" || continue
@@ -37,6 +37,6 @@ done < <(ccm_accounts)
 if [ -n "$best_dir" ]; then
   printf '%s\n' "$best_dir"
 else
-  printf 'cc: todas las cuentas al %s%%+; uso la de reset más cercano\n' "$THR" >&2
+  printf 'cc: all accounts are at %s%%+; using the one with the nearest reset\n' "$THR" >&2
   printf '%s\n' "$fb_dir"
 fi
